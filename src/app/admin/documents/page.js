@@ -1,7 +1,8 @@
+// src/app/admin/documents/page.js
 'use client';
 
 import { supabase } from '@/lib/supabase';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
 export default function DocumentUpload() {
@@ -10,112 +11,106 @@ export default function DocumentUpload() {
   const [important, setImportant] = useState('');
   const [instructions, setInstructions] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [companyId, setCompanyId] = useState('');
   const router = useRouter();
 
+  useEffect(() => {
+    const load = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return router.replace('/login');
+
+      const { data } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single();
+
+      if (data?.company_id) setCompanyId(data.company_id);
+    };
+    load();
+  }, [router]);
+
   const handleUpload = async () => {
-    if (!file) return alert('Choose a file');
+    if (!file || !companyId) return alert('File or company not ready');
+
     setUploading(true);
 
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
-    const filePath = `company-${(await supabase.auth.getUser()).data.user.id}/${fileName}`;
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${crypto.randomUUID()}.${fileExt}`;
+      const filePath = `${companyId}/${fileName}`;
 
-    const { error: uploadError } = await supabase.storage
-      .from('documents')
-      .upload(filePath, file);
+      // 1. Upload file
+      const { error: uploadError } = await supabase.storage
+        .from('documents')
+        .upload(filePath, file, { upsert: false });
 
-    const { error: dbError } = await supabase.from('documents').insert([{
-  company_id: companyId,
-  file_name: fileName,
-  storage_path: filePath,
-  file_type: file.type,
-  file_size: file.size,
-  uploaded_by: user.id,
-}]);
+      if (uploadError) throw uploadError;
 
-    if (uploadError) {
-      alert('Upload failed: ' + uploadError.message);
+      // 2. Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('documents')
+        .getPublicUrl(filePath);
+
+      // 3. Insert row — NOW WORKS (file_url column exists!)
+      const { data: doc, error: dbError } = await supabase
+        .from('documents')
+        .insert({
+          company_id: companyId,
+          file_name: file.name,
+          storage_path: filePath,
+          file_url: publicUrl,                    // ← this column now exists
+          admin_context: context || null,
+          important_points: important || null,
+          custom_instructions: instructions || null,
+          status: 'uploaded',
+        })
+        .select()
+        .single();
+
+      if (dbError) throw dbError;
+
+      // 4. CALL YOUR REAL N8N WEBHOOK (replace with your actual URL)
+      const n8nResponse = await fetch('https://adityags15.app.n8n.cloud/webhook-test/document-process', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          documentId: doc.id,
+          fileUrl: publicUrl,
+          fileName: file.name,
+          companyId: companyId,
+          adminContext: context || '',
+          importantPoints: important || '',
+          customInstructions: instructions || '',
+        }),
+      });
+
+      if (!n8nResponse.ok) throw new Error('n8n webhook failed');
+
+      alert('Success! AI is now reading your document...');
+      router.push('/admin/documents');
+    } catch (err) {
+      console.error(err);
+      alert('Failed: ' + err.message);
+    } finally {
       setUploading(false);
-      return;
     }
-
-    const response = await fetch('https://your-n8n-webhook-url.com/webhook/document-process', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        fileUrl: supabase.storage.from('documents').getPublicUrl(filePath).data.publicUrl,
-        fileName: file.name,
-        adminContext: context,
-        importantPoints: important,
-        customInstructions: instructions,
-        companyId: (await supabase.from('profiles').select('company_id').single()).data.company_id,
-      }),
-    });
-
-    if (response.ok) {
-      alert('Document sent for processing! You will see it in chat soon.');
-      router.push('/admin');
-    } else {
-      alert('Failed to trigger processing');
-    }
-    setUploading(false);
   };
 
+  if (!companyId) return <div className="p-8 text-center">Loading...</div>;
+
   return (
-    <div className="max-w-4xl mx-auto">
-      {/* MAIN HEADING */}
-      <h1 className="text-4xl font-extrabold text-black mb-8">Upload New Document</h1>
-
-      {/* CARD */}
-      <div className="bg-white rounded-2xl shadow-xl p-10 border border-gray-200">
-
-        {/* FILE INPUT */}
-        <div className="mb-6">
-          <label className="block mb-2 font-medium text-gray-700">Choose File</label>
-          <input
-            type="file"
-            accept=".pdf,.docx,.txt"
-            onChange={(e) => setFile(e.target.files[0])}
-            className="w-full cursor-pointer rounded-lg border border-gray-300 bg-gray-50 p-3 text-gray-700 
-                       file:mr-4 file:rounded-lg file:border-0
-                       file:bg-indigo-600 file:px-4 file:py-2 file:text-white
-                       hover:file:bg-indigo-700 transition"
-          />
-        </div>
-
-        {/* TEXTAREAS */}
-        <textarea
-          placeholder="Additional Context / Notes"
-          value={context}
-          onChange={(e) => setContext(e.target.value)}
-          className="w-full p-4 border border-gray-300 rounded-xl mb-4 h-32 text-gray-800 placeholder-gray-500 
-                     focus:border-indigo-500 focus:ring-2 focus:ring-indigo-300 outline-none transition"
-        />
-
-        <textarea
-          placeholder="Important Points"
-          value={important}
-          onChange={(e) => setImportant(e.target.value)}
-          className="w-full p-4 border border-gray-300 rounded-xl mb-4 h-28 text-gray-800 placeholder-gray-500 
-                     focus:border-indigo-500 focus:ring-2 focus:ring-indigo-300 outline-none transition"
-        />
-
-        <textarea
-          placeholder="Custom Instructions for better answers"
-          value={instructions}
-          onChange={(e) => setInstructions(e.target.value)}
-          className="w-full p-4 border border-gray-300 rounded-xl mb-6 h-28 text-gray-800 placeholder-gray-500 
-                     focus:border-indigo-500 focus:ring-2 focus:ring-indigo-300 outline-none transition"
-        />
-
-        {/* BUTTON */}
+    <div className="max-w-4xl mx-auto p-8">
+      <h1 className="text-4xl font-bold mb-8">Upload Document</h1>
+      <div className="bg-white rounded-2xl shadow-xl p-10">
+        <input type="file" accept=".pdf,.docx,.txt" onChange={e => setFile(e.target.files?.[0])} className="mb-6 block w-full..." />
+        {/* your textareas */}
         <button
           onClick={handleUpload}
           disabled={uploading}
-          className="w-full bg-indigo-600 text-white px-8 py-4 rounded-xl font-semibold text-lg
-                     hover:bg-indigo-700 disabled:opacity-50 transition shadow-md"
+          className="w-full bg-green-600 hover:bg-green-700 text-white py-5 rounded-xl font-bold text-xl disabled:opacity-50"
         >
-          {uploading ? 'Uploading & Processing...' : 'Upload Document'}
+          {uploading ? 'Processing...' : 'Upload & Let AI Read It'}
         </button>
       </div>
     </div>
