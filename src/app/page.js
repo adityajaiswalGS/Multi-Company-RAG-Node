@@ -18,7 +18,10 @@ export default function Home() {
     }
   }, [profile, router]);
 
+    
   return (
+
+    
     <div className="flex min-h-screen items-center justify-center text-2xl">
       Redirecting...
     </div>

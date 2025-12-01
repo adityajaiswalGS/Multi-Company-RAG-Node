@@ -24,6 +24,15 @@ export default function DocumentUpload() {
       .from('documents')
       .upload(filePath, file);
 
+    const { error: dbError } = await supabase.from('documents').insert([{
+  company_id: companyId,
+  file_name: fileName,
+  storage_path: filePath,
+  file_type: file.type,
+  file_size: file.size,
+  uploaded_by: user.id,
+}]);
+
     if (uploadError) {
       alert('Upload failed: ' + uploadError.message);
       setUploading(false);

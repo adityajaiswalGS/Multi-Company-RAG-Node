@@ -134,7 +134,7 @@ export default function AdminDashboard() {
     <div className="grid gap-4 md:grid-cols-2">
       {users.map((u) => (
         <div key={u.id} className="rounded-lg border p-6">
-          <p className="text-lg font-semibold">{u.full_name || 'No name'}</p>
+          <p className="text-lg font-semibold text-gray-800">{u.full_name || 'No name'}</p>
           <p className="text-sm text-gray-600">{u.id}</p>
 
           <span
