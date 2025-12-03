@@ -2,189 +2,308 @@
 'use client';
 
 import { supabase } from '@/lib/supabase';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 
-export default function Chat() {
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [documents, setDocuments] = useState([]);
-  const [selectedDoc, setSelectedDoc] = useState(null);
+import {
+  Box,
+  Paper,
+  Typography,
+  TextField,
+  Button,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemIcon,
+  Checkbox,
+  Divider,
+  Chip,
+  CircularProgress,
+  IconButton
+} from '@mui/material';
+
+import { Send, CheckBoxOutlineBlank, CheckBox } from '@mui/icons-material';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import Description from '@mui/icons-material/Description';
+
+export default function ChatPage() {
+  const [user, setUser] = useState(null);
   const [companyId, setCompanyId] = useState('');
-  const [fetchingDocs, setFetchingDocs] = useState(false);
+  const [documents, setDocuments] = useState([]);
+  const [selectedDocs, setSelectedDocs] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [question, setQuestion] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const [refreshing, setRefreshing] = useState(false);
+
+  const messagesEndRef = useRef(null);
   const router = useRouter();
 
-  // Load company + documents
+  // ────────────────────────────────────────────────
+  // LOAD USER + DOCUMENTS
+  // ────────────────────────────────────────────────
   useEffect(() => {
-    const load = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return router.replace('/login');
+    loadUserAndDocs();
+  }, []);
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('company_id')
-        .eq('id', user.id)
-        .single();
+  const loadUserAndDocs = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return router.replace('/login');
 
-      if (profile?.company_id) {
-        setCompanyId(profile.company_id);
-        fetchDocuments(profile.company_id);
-      }
-    };
-    load();
-  }, [router]);
+    setUser(user);
 
-  const fetchDocuments = async (cid) => {
-    setFetchingDocs(true);
-    const { data, error } = await supabase
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('company_id')
+      .eq('id', user.id)
+      .single();
+
+    if (!profile?.company_id) return;
+
+    setCompanyId(profile.company_id);
+
+    await fetchDocuments(profile.company_id);
+  };
+
+  // ────────────────────────────────────────────────
+  // FETCH DOCUMENTS FUNCTION (USED BY REFRESH TOO)
+  // ────────────────────────────────────────────────
+  const fetchDocuments = async (cid = companyId) => {
+    setRefreshing(true);
+
+    const { data: docs } = await supabase
       .from('documents')
-      .select('id, file_name, status, auto_summary, created_at')
-      .eq('company_id', cid || companyId)
+      .select('*')
+      .eq('company_id', cid)
+      .eq('status', 'ready')
       .order('created_at', { ascending: false });
 
-    if (!error) setDocuments(data || []);
-    setFetchingDocs(false);
+    setDocuments(docs || []);
+    setSelectedDocs(docs?.map(d => d.id) || []);
+
+    setRefreshing(false);
   };
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.replace('/login');
-  };
+  // ────────────────────────────────────────────────
+  // SCROLL TO BOTTOM
+  // ────────────────────────────────────────────────
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
-  const sendMessage = async () => {
-    if (!input.trim() || !selectedDoc) return;
-    const question = input;
-    setMessages(m => [...m, { role: 'user', content: question }]);
-    setInput('');
+  // ────────────────────────────────────────────────
+  // SEND MESSAGE
+  // ────────────────────────────────────────────────
+  const handleSend = async () => {
+    if (!question.trim() || !companyId) return;
+
+    const userMessage = { role: 'user', content: question };
+    setMessages(prev => [...prev, userMessage]);
+    setQuestion('');
     setLoading(true);
 
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        question,
-        documentId: selectedDoc.id,
-        companyId,
-      }),
-    });
+    try {
+      const selectedDocData = documents.filter(d => selectedDocs.includes(d.id));
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let answer = '';
+      const docContext = selectedDocData.map(d => `
+        DOCUMENT: ${d.file_name}
+        SUMMARY: ${d.auto_summary || 'No summary available'}
+        IMPORTANT: ${d.important_points || ''}
+        CONTEXT: ${d.admin_context || ''}
+        INSTRUCTIONS: ${d.custom_instructions || ''}
+      `).join('\n\n---\n\n');
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const chunk = decoder.decode(value);
-      answer += chunk;
-      setMessages(m => {
-        const last = m[m.length - 1];
-        if (last?.role === 'assistant') {
-          last.content = answer;
-          return [...m];
-        } else {
-          return [...m, { role: 'assistant', content: answer }];
+      const response = await fetch(
+        'https://adityags15.app.n8n.cloud/webhook/chat',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            company_id: companyId,
+            document_ids: selectedDocs,
+            question,
+            context: docContext
+          }),
         }
-      });
+      );
+
+      const data = await response.json();
+
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: data.answer || 'No answer',
+          citations: data.citations || []
+        }
+      ]);
+
+    } catch (e) {
+      setMessages(prev => [
+        ...prev,
+        { role: 'assistant', content: 'Something went wrong.' }
+      ]);
     }
+
     setLoading(false);
   };
 
+  // ────────────────────────────────────────────────
+  // SIDEBAR DOC SELECT
+  // ────────────────────────────────────────────────
+  const toggleDoc = (id) => {
+    setSelectedDocs(prev =>
+      prev.includes(id) ? prev.filter(d => d !== id) : [...prev, id]
+    );
+  };
+
+  const selectAll = () => setSelectedDocs(documents.map(d => d.id));
+  const clearAll = () => setSelectedDocs([]);
+
+  if (!companyId) return <Box p={4}><CircularProgress /></Box>;
+
+  // ────────────────────────────────────────────────
+  // UI
+  // ────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-purple-50 flex">
-      {/* LEFT: CHAT */}
-      <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <header className="bg-white shadow-md px-8 py-5 flex justify-between items-center">
-          <h1 className="text-3xl font-bold text-gray-800">AI Chat</h1>
-          <button onClick={handleLogout} className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold">
-            Logout
-          </button>
-        </header>
+    <Box display="flex" height="100vh" bgcolor="#f5f5f5">
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-8 space-y-6">
-          {messages.length === 0 && selectedDoc && (
-            <div className="text-center text-gray-600 mt-20">
-              <p className="text-2xl font-medium">You are now chatting with:</p>
-              <p className="text-xl font-bold text-indigo-700 mt-2">{selectedDoc.file_name}</p>
-            </div>
-          )}
-          {messages.map((m, i) => (
-            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-2xl px-6 py-4 rounded-2xl shadow-md ${m.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100'}`}>
-                {m.content}
-              </div>
-            </div>
-          ))}
-          {loading && <div className="text-gray-800 italic">AI is thinking...</div>}
-        </div>
+      {/* ────────────── SIDEBAR ────────────── */}
+      <Paper
+        elevation={3}
+        sx={{ width: 300, p: 2, borderRight: '1px solid #ddd', display: 'flex', flexDirection: 'column' }}
+      >
+        <Box display="flex" justifyContent="space-between" alignItems="center">
+          <Typography variant="h6">Your Documents</Typography>
 
-        {/* Input */}
-        <div className="border-t bg-white p-6">
-          <div className="flex gap-4 max-w-5xl mx-auto">
-            <input
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-              placeholder={selectedDoc ? "Ask anything about this document..." : "First select a document →"}
-              disabled={!selectedDoc || loading}
-              className=" text-gray-800 flex-1 px-6 py-4 border-2 border-gray-300 rounded-xl text-lg focus:border-indigo-500 outline-none"
-            />
-            <button
-              onClick={sendMessage}
-              disabled={!selectedDoc || loading || !input.trim()}
-              className="px-10 py-4 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold rounded-xl disabled:opacity-50"
+          <IconButton onClick={() => fetchDocuments()} disabled={refreshing}>
+            {refreshing ? <CircularProgress size={20} /> : <RefreshIcon />}
+          </IconButton>
+        </Box>
+
+        <Typography variant="caption" color="textSecondary">
+          ({documents.length} ready)
+        </Typography>
+
+        <Box mt={2} display="flex" gap={1}>
+          <Button variant="outlined" size="small" onClick={selectAll} fullWidth>
+            Select All
+          </Button>
+          <Button variant="outlined" size="small" onClick={clearAll} fullWidth>
+            Clear
+          </Button>
+        </Box>
+
+        <Divider sx={{ my: 2 }} />
+
+        {/* Document List */}
+        <List dense sx={{ overflowY: 'auto', flex: 1 }}>
+          {documents.map(doc => (
+            <ListItem
+              key={doc.id}
+              secondaryAction={
+                <Checkbox
+                  edge="end"
+                  icon={<CheckBoxOutlineBlank />}
+                  checkedIcon={<CheckBox />}
+                  checked={selectedDocs.includes(doc.id)}
+                  onChange={() => toggleDoc(doc.id)}
+                />
+              }
             >
-              Send
-            </button>
-          </div>
-        </div>
-      </div>
+              <ListItemIcon><Description /></ListItemIcon>
 
-      {/* RIGHT: DOCUMENT PANEL */}
-      <div className="w-96 bg-white shadow-2xl border-l flex flex-col">
-        <div className="p-6 border-b flex justify-between items-center">
-          <h2 className="text-2xl font-bold text-gray-800">Your Documents</h2>
-          <button
-            onClick={() => fetchDocuments()}
-            disabled={fetchingDocs}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium"
-          >
-            {fetchingDocs ? 'Refreshing...' : 'Refresh'}
-          </button>
-        </div>
+              <ListItemText
+                primary={doc.file_name}
+                secondary={
+                  <Box>
+                    <Typography variant="caption" display="block">
+                      {doc.auto_summary?.substring(0, 80)}...
+                    </Typography>
+                    <Chip
+                      label={doc.status}
+                      size="small"
+                      color="success"
+                      sx={{ mt: 0.5 }}
+                    />
+                  </Box>
+                }
+              />
+            </ListItem>
+          ))}
+        </List>
+      </Paper>
 
-        <div className="flex-1 overflow-y-auto p-4">
-          {documents.length === 0 ? (
-            <p className="text-center text-gray-800 mt-10">No documents yet</p>
-          ) : (
-            documents.map(doc => (
-              <div
-                key={doc.id}
-                onClick={() => {
-                  setSelectedDoc(doc);
-                  setMessages([]);
+      {/* ────────────── CHAT PANEL ────────────── */}
+      <Box flex={1} display="flex" flexDirection="column">
+
+      <Box p={2} bgcolor="white" borderBottom={1} borderColor="#000000ff">
+  <Typography variant="h6" color="black">
+    AI Assistant
+  </Typography>
+  <Chip label={`Company: ${companyId.substring(0, 8)}...`} size="small" />
+</Box>
+
+
+        <Box flex={1} p={2} sx={{ overflowY: "auto" }}>
+          {messages.map((msg, i) => (
+            <Box
+              key={i}
+              mb={2}
+              display="flex"
+              flexDirection={msg.role === 'user' ? 'row-reverse' : 'row'}
+            >
+              <Paper
+                elevation={1}
+                sx={{
+                  maxWidth: '70%',
+                  p: 2,
+                  bgcolor: msg.role === 'user' ? '#e3f2fd' : 'white'
                 }}
-                className={`p-4 mb-3 rounded-xl cursor-pointer transition-all border-2 ${
-                  selectedDoc?.id === doc.id
-                    ? 'border-indigo-600 bg-indigo-50 shadow-lg'
-                    : 'border-gray-200 hover:border-indigo-400 hover:bg-gray-50'
-                }`}
               >
-                <p className="font-semibold text-gray-800 truncate">{doc.file_name}</p>
-                <p className="text-xs text-gray-800 mt-1">
-                  {doc.status === 'ready' ? 'Ready' : 'Processing...'}
-                </p>
-                {doc.auto_summary && (
-                  <p className="text-xs text-gray-800 mt-2 line-clamp-2">{doc.auto_summary}</p>
+                <Typography>{msg.content}</Typography>
+
+                {msg.citations?.length > 0 && (
+                  <Box mt={1}>
+                    {msg.citations.map((cit, j) => (
+                      <Chip
+                        key={j}
+                        label={`From: ${cit.file_name} (Chunk ${cit.chunk_index})`}
+                        size="small"
+                        variant="outlined"
+                      />
+                    ))}
+                  </Box>
                 )}
-              </div>
-            ))
+              </Paper>
+            </Box>
+          ))}
+
+          {loading && (
+            <Box p={2}><CircularProgress size={24} /></Box>
           )}
-        </div>
-      </div>
-    </div>
+
+          <div ref={messagesEndRef} />
+        </Box>
+
+        <Divider />
+
+        {/* Input Box */}
+        <Box p={2} display="flex" gap={1}>
+          <TextField
+            fullWidth
+            placeholder="Ask something..."
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && !loading && handleSend()}
+          />
+          <IconButton onClick={handleSend} disabled={loading || !question.trim()}>
+            <Send />
+          </IconButton>
+        </Box>
+
+      </Box>
+    </Box>
   );
 }
