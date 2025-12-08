@@ -6,13 +6,25 @@ export async function middleware(req) {
   const res = NextResponse.next();
   const supabase = createMiddlewareClient({ req, res });
 
-  // This is FAST and reliable
+  // GET FRESH SESSION EVERY TIME — THIS IS THE KEY
   const { data: { session } } = await supabase.auth.getSession();
+
+  // FORCE REFRESH SESSION — THIS FIXES THE BUG
+  if (session) {
+    await supabase.auth.refreshSession();
+  }
 
   const pathname = req.nextUrl.pathname;
 
-  // 1. If user is logged in and hits /login → redirect to correct dashboard
-  if (session && pathname === '/login') {
+  // SKIP REDIRECT LOGIC FOR STATIC FILES AND API
+  if (pathname.startsWith('/_next') || pathname.startsWith('/api')) {
+    return res;
+  }
+
+  // ROOT → redirect based on role
+  if (pathname === '/') {
+    if (!session) return NextResponse.redirect(new URL('/login', req.url));
+
     const { data: profile } = await supabase
       .from('profiles')
       .select('role')
@@ -23,10 +35,10 @@ export async function middleware(req) {
     return NextResponse.redirect(new URL(redirectTo, req.url));
   }
 
-  // 2. Protect /admin
+  // PROTECTED ROUTES
   if (pathname.startsWith('/admin')) {
     if (!session) return NextResponse.redirect(new URL('/login', req.url));
-    
+
     const { data: profile } = await supabase
       .from('profiles')
       .select('role')
@@ -38,29 +50,24 @@ export async function middleware(req) {
     }
   }
 
-  // 3. Protect /chat
   if (pathname.startsWith('/chat') && !session) {
     return NextResponse.redirect(new URL('/login', req.url));
   }
 
-  // 4. ROOT PATH (/) → always go to login if not logged in, or dashboard if logged in
-  if (pathname === '/') {
-    if (session) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', session.user.id)
-        .single();
-      const redirectTo = profile?.role === 'admin' ? '/admin' : '/chat';
-      return NextResponse.redirect(new URL(redirectTo, req.url));
-    } else {
-      return NextResponse.redirect(new URL('/login', req.url));
-    }
+  if (pathname === '/login' && session) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', session.user.id)
+      .single();
+
+    const redirectTo = profile?.role === 'admin' ? '/admin' : '/chat';
+    return NextResponse.redirect(new URL(redirectTo, req.url));
   }
 
   return res;
 }
 
 export const config = {
-  matcher: ['/', '/login', '/admin/:path*', '/chat/:path*'],
+  matcher: ['/', '/login', '/admin/:path*', '/chat'],
 };

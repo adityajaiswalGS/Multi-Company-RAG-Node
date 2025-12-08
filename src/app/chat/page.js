@@ -26,6 +26,7 @@ export default function ChatPage() {
 
   const WEBHOOK_URL = "https://adityags15.app.n8n.cloud/webhook/880ed6d9-68cb-4a36-b63b-83c110c05def";
 
+
   useEffect(() => {
     loadUserAndDocs();
   }, []);
@@ -214,10 +215,17 @@ export default function ChatPage() {
       {/* MAIN CHAT AREA */}
       <Box flex={1} display="flex" flexDirection="column" ml={sidebarOpen ? 0 : '70px'} transition="margin 0.35s">
 
-        <Box p={3} pl={4}  bgcolor="white" borderBottom={1} borderColor="divider">
-          <Typography variant="h5" color='black' fontWeight="bold">AI Assistant</Typography>
-          <Chip label={`Company ID: ${companyId.substring(0, 8)}...`} size="small" sx={{ mt: 1 }} />
-        </Box>
+       {/* HEADER - SHOW USER NAME */}
+<Box p={3} pl={4} bgcolor="white" borderBottom={1} borderColor="divider">
+  <Typography variant="h5" fontWeight="bold" color='black'>
+    Chat with {user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'You'}
+  </Typography>
+  <Chip 
+    label={`Company ID: ${companyId.substring(0, 8)}...`} 
+    size="small" 
+    sx={{ mt: 1 }} 
+  />
+</Box>
 
         <Box flex={1} p={5} sx={{ overflowY: 'auto', bgcolor: '#f8fafc' }}>
           {messages.length === 0 ? (

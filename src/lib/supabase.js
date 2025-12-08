@@ -1,14 +1,11 @@
-// src/lib/supabase.js   ← REPLACE YOUR WHOLE FILE WITH THIS
+// src/lib/supabase.js
 import { createPagesBrowserClient } from '@supabase/auth-helpers-nextjs';
+import { createClient } from '@supabase/supabase-js';
 
+// Public client (for browser)
+export const supabase = createPagesBrowserClient();
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-export const supabase = createPagesBrowserClient({
-  supabaseUrl,  
-  supabaseKey: supabaseAnonKey,
-});
-
-export const createServerClient = () =>
-  createClient(supabaseUrl, supabaseAnonKey);
+export const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY
+);

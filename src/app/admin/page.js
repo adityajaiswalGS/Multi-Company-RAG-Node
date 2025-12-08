@@ -4,6 +4,7 @@
 import { supabase } from '@/lib/supabase';
 import { useContext, useEffect, useState } from 'react';
 import { AuthContext } from '../layout';
+import { supabaseAdmin } from '@/lib/supabase';
 
 export default function AdminDashboard() {
   const { profile } = useContext(AuthContext);
@@ -12,11 +13,10 @@ export default function AdminDashboard() {
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState({ text: '', type: '' }); 
+  const [message, setMessage] = useState({ text: '', type: '' });
+
   useEffect(() => {
-    if (profile?.company_id) {
-      loadUsers();
-    }
+    if (profile?.company_id) loadUsers();
   }, [profile]);
 
   const loadUsers = async () => {
@@ -25,66 +25,62 @@ export default function AdminDashboard() {
       .select('id, full_name, role, created_at')
       .eq('company_id', profile.company_id)
       .order('created_at', { ascending: false });
-
     setUsers(data || []);
   };
 
-  const createUser = async () => {
-    if (!email || !password || !fullName) {
-      setMessage({ text: 'Please fill all fields', type: 'error' });
-      setTimeout(() => setMessage({ text: '', type: '' }), 4000);
-      return;
-    }
 
-    setLoading(true);
-    setMessage({ text: '', type: '' });
 
-    try {
-      // 1. Create auth user
-      const { data: authData, error: authError } = await supabase.auth.signUp({
+ const createUser = async () => {
+  if (!email || !password || !fullName) {
+    showMessage('All fields are required', 'error');
+    return;
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    showMessage('Invalid email', 'error');
+    return;
+  }
+  if (password.length < 6) {
+    showMessage('Password must be 6+ chars', 'error');
+    return;
+  }
+
+  setLoading(true);
+  showMessage('', '');
+
+  try {
+    const res = await fetch('/api/create-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         email,
         password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-        },
-      });
+        fullName,
+        companyId: profile.company_id,
+      }),
+    });
 
-      if (authError) throw authError;
-      if (!authData.user) throw new Error('User created but no user returned');
+    const data = await res.json();
 
-      // 2. Create profile
-      const { error: profileError } = await supabase.from('profiles').insert({
-        id: authData.user.id,
-        full_name: fullName,
-        role: 'user',
-        company_id: profile.company_id,
-      });
+    if (!res.ok) throw new Error(data.error || 'Failed');
 
-      if (profileError) throw profileError;
+    showMessage(`User "${fullName}" created successfully!`, 'success');
+    setEmail('');
+    setPassword('');
+    setFullName('');
+    loadUsers();
 
-      // SUCCESS
-      setMessage({ text: `User "${fullName}" created successfully!`, type: 'success' });
+  } catch (err) {
+    showMessage(err.message || 'Failed to create user', 'error');
+  } finally {
+    setLoading(false);
+  }
+};
 
-      // Reset form
-      setEmail('');
-      setPassword('');
-      setFullName('');
 
-      // Refresh users list
-      loadUsers();
 
-      // Auto-clear message
-      setTimeout(() => setMessage({ text: '', type: '' }), 5000);
-    } catch (err) {
-      console.error('Create user error:', err);
-      setMessage({
-        text: err.message || 'Failed to create user',
-        type: 'error',
-      });
-      setTimeout(() => setMessage({ text: '', type: '' }), 6000);
-    } finally {
-      setLoading(false);
-    }
+  const showMessage = (text, type) => {
+    setMessage({ text, type });
+    if (text) setTimeout(() => setMessage({ text: '', type: '' }), 5000);
   };
 
   if (!profile) return <div className="p-8 text-center text-2xl">Loading...</div>;
@@ -92,27 +88,25 @@ export default function AdminDashboard() {
   return (
     <div className="max-w-6xl mx-auto p-8">
       <h1 className="mb-10 text-5xl font-extrabold text-gray-800">
-        Welcome, {profile.full_name || 'Admin'}
+        Welcome, {'Admin'}
       </h1>
 
-      {/* Message */}
       {message.text && (
         <div
-          className={`mb-8 p-5 rounded-xl text-center text-lg font-medium shadow-lg ${
+          className={`mb-8 p-5 rounded-xl text-center text-lg font-medium shadow-lg border-2 ${
             message.type === 'success'
-              ? 'bg-green-100 text-green-800 border-2 border-green-300'
-              : 'bg-red-100 text-red-800 border-2 border-red-300'
+              ? 'bg-green-100 text-green-800 border-green-300'
+              : 'bg-red-100 text-red-800 border-red-300'
           }`}
         >
           {message.text}
         </div>
       )}
 
-      {/* Create User Form */}
       <div className="mb-12 rounded-2xl bg-white p-10 shadow-2xl border border-gray-200">
         <h2 className="mb-8 text-3xl font-bold text-gray-800">Add New User</h2>
 
-        <div className="grid grid-cols-1 text-gray-800 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <input
             type="email"
             placeholder="Email"
@@ -145,6 +139,7 @@ export default function AdminDashboard() {
         </button>
       </div>
 
+     
       {/* Users List */}
       <div className="rounded-2xl bg-white p-10 shadow-2xl border border-gray-200">
         <h2 className="mb-8 text-3xl font-bold text-gray-800">
