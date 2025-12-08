@@ -214,8 +214,8 @@ export default function ChatPage() {
       {/* MAIN CHAT AREA */}
       <Box flex={1} display="flex" flexDirection="column" ml={sidebarOpen ? 0 : '70px'} transition="margin 0.35s">
 
-        <Box p={3} pl={4} bgcolor="white" borderBottom={1} borderColor="divider">
-          <Typography variant="h5" fontWeight="bold">AI Assistant</Typography>
+        <Box p={3} pl={4}  bgcolor="white" borderBottom={1} borderColor="divider">
+          <Typography variant="h5" color='black' fontWeight="bold">AI Assistant</Typography>
           <Chip label={`Company ID: ${companyId.substring(0, 8)}...`} size="small" sx={{ mt: 1 }} />
         </Box>
 
