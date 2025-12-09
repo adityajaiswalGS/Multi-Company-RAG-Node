@@ -1,19 +1,43 @@
-// src/app/admin/page.js
 'use client';
 
 import { supabase } from '@/lib/supabase';
 import { useContext, useEffect, useState } from 'react';
 import { AuthContext } from '../layout';
 
+import { useForm } from 'react-hook-form';
+import { z } from 'zod';
+import { zodResolver } from '@hookform/resolvers/zod';
+
+// -----------------------------
+// ZOD SCHEMA
+// -----------------------------
+const userSchema = z.object({
+  email: z.string().email("Enter valid email"),
+  password: z.string().min(6, "Password must be 6+ characters"),
+  fullName: z.string().min(2, "Full name must be at least 2 chars"),
+});
+
 export default function AdminDashboard() {
   const { profile } = useContext(AuthContext);
   const [users, setUsers] = useState([]);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
 
+  // -----------------------------
+  // React Hook Form
+  // -----------------------------
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm({
+    resolver: zodResolver(userSchema),
+  });
+
+  // -----------------------------
+  // Load users
+  // -----------------------------
   useEffect(() => {
     if (profile?.company_id) loadUsers();
   }, [profile]);
@@ -24,66 +48,53 @@ export default function AdminDashboard() {
       .select('id, full_name, role, created_at')
       .eq('company_id', profile.company_id)
       .order('created_at', { ascending: false });
-    setUsers(data || []);
+
+    setUsers(data || []); 
   };
 
+  // -----------------------------
+  // CREATE USER
+  // -----------------------------
+  const createUser = async (formValues) => {
+    const { email, password, fullName } = formValues;
 
+    setLoading(true);
+    showMessage('', '');
 
- const createUser = async () => {
-  if (!email || !password || !fullName) {
-    showMessage('All fields are required', 'error');
-    return;
-  }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    showMessage('Invalid email', 'error');
-    return;
-  }
-  if (password.length < 6) {
-    showMessage('Password must be 6+ chars', 'error');
-    return;
-  }
+    try {
+      const res = await fetch('/api/create-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          password,
+          fullName,
+          companyId: profile.company_id,
+        }),
+      });
 
-  setLoading(true);
-  showMessage('', '');
+      const data = await res.json();
 
-  try {
-    const res = await fetch('/api/create-user', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email,
-        password,
-        fullName,
-        companyId: profile.company_id,
-      }),
-    });
-
-    const data = await res.json();
-
-    // THIS HANDLES DUPLICATE EMAIL GRACEFULLY
-    if (!res.ok) {
-      if (res.status === 409 || data.error?.includes('already')) {
-        showMessage('User with this email already exists', 'error');
-      } else {
-        showMessage(data.error || 'Failed to create user', 'error');
+      if (!res.ok) {
+        if (res.status === 409 || data.error?.includes('already')) {
+          showMessage("User with this email already exists", "error");
+        } else {
+          showMessage(data.error || "Failed to create user", "error");
+        }
+        return;
       }
-      return;
+
+      showMessage(`User "${fullName}" created successfully!`, "success");
+      reset();
+      loadUsers();
+
+    } catch (err) {
+      console.error("Create user error:", err);
+      showMessage("Network error — check console", "error");
+    } finally {
+      setLoading(false);
     }
-
-    showMessage(`User "${fullName}" created successfully!`, 'success');
-    setEmail('');
-    setPassword('');
-    setFullName('');
-    loadUsers();
-
-  } catch (err) {
-    console.error('Create user error:', err);
-    showMessage('Network error — check console', 'error');
-  } finally {
-    setLoading(false);
-  }
-};
-
+  };
 
   const showMessage = (text, type) => {
     setMessage({ text, type });
@@ -95,7 +106,7 @@ export default function AdminDashboard() {
   return (
     <div className="max-w-6xl mx-auto p-8">
       <h1 className="mb-10 text-5xl font-extrabold text-gray-800">
-        Welcome, {'Admin'}
+        Welcome, Admin
       </h1>
 
       {message.text && (
@@ -110,44 +121,67 @@ export default function AdminDashboard() {
         </div>
       )}
 
+      {/* =====================
+          ADD USER FORM
+      ====================== */}
       <div className="mb-12 rounded-2xl bg-white p-10 shadow-2xl border border-gray-200">
         <h2 className="mb-8 text-3xl font-bold text-gray-800">Add New User</h2>
 
-        <div className="grid text-gray-800 grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="rounded-xl border-2 border-gray-300 px-6 py-4 text-lg focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition"
-          />
-          <input
-            type="password"
-            placeholder="Password (min 6 chars)"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="rounded-xl border-2 border-gray-300 px-6 py-4 text-lg focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition"
-          />
-          <input
-            type="text"
-            placeholder="Full Name"
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            className="rounded-xl border-2 border-gray-300 px-6 py-4 text-lg focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition"
-          />
-        </div>
+        <form onSubmit={handleSubmit(createUser)}>
+          <div className="grid text-gray-800 grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            {/* Email */}
+            <div>
+              <input
+                type="email"
+                placeholder="Email"
+                {...register('email')}
+                className="w-full rounded-xl border-2 border-gray-300 px-6 py-4 text-lg focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition"
+              />
+              {errors.email && (
+                <p className="text-red-600 mt-2 text-sm">{errors.email.message}</p>
+              )}
+            </div>
 
-        <button
-          onClick={createUser}
-          disabled={loading}
-          className="w-full md:w-auto px-12 py-5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold text-xl rounded-xl shadow-lg disabled:opacity-60 transition transform hover:scale-105"
-        >
-          {loading ? 'Creating User...' : 'Create User'}
-        </button>
+            {/* Password */}
+            <div>
+              <input
+                type="password"
+                placeholder="Password (min 6 chars)"
+                {...register('password')}
+                className="w-full rounded-xl border-2 border-gray-300 px-6 py-4 text-lg focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition"
+              />
+              {errors.password && (
+                <p className="text-red-600 mt-2 text-sm">{errors.password.message}</p>
+              )}
+            </div>
+
+            {/* Full Name */}
+            <div>
+              <input
+                type="text"
+                placeholder="Full Name"
+                {...register('fullName')}
+                className="w-full rounded-xl border-2 border-gray-300 px-6 py-4 text-lg focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition"
+              />
+              {errors.fullName && (
+                <p className="text-red-600 mt-2 text-sm">{errors.fullName.message}</p>
+              )}
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full md:w-auto px-12 py-5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold text-xl rounded-xl shadow-lg disabled:opacity-60 transition transform hover:scale-105"
+          >
+            {loading ? 'Creating User...' : 'Create User'}
+          </button>
+        </form>
       </div>
 
-     
-      {/* Users List */}
+      {/* =====================
+          USERS LIST
+      ====================== */}
       <div className="rounded-2xl bg-white p-10 shadow-2xl border border-gray-200">
         <h2 className="mb-8 text-3xl font-bold text-gray-800">
           All Users in Your Company ({users.length})
@@ -164,10 +198,8 @@ export default function AdminDashboard() {
 
               <div className="mt-4">
                 <span
-                  className={`inline-block text-gray-800 px-4 py-2 rounded-full text-sm font-bold ${
-                    u.role === 'admin'
-                      ? 'bg-purple-600 text-white'
-                      : 'bg-blue-600 text-white'
+                  className={`inline-block px-4 py-2 rounded-full text-sm font-bold text-white ${
+                    u.role === 'admin' ? 'bg-purple-600' : 'bg-blue-600'
                   }`}
                 >
                   {u.role.toUpperCase()}
@@ -182,7 +214,9 @@ export default function AdminDashboard() {
         </div>
 
         {users.length === 0 && (
-          <p className="text-center text-gray-800 text-lg mt-10">No users yet. Create the first one above!</p>
+          <p className="text-center text-gray-800 text-lg mt-10">
+            No users yet. Create the first one above!
+          </p>
         )}
       </div>
     </div>

@@ -4,15 +4,37 @@
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { z } from 'zod';
+import { zodResolver } from '@hookform/resolvers/zod';
+
+// -----------------------------
+// ZOD SCHEMA
+// -----------------------------
+const loginSchema = z.object({
+  email: z.string().email('Enter a valid email'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+});
 
 export default function Login() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const router = useRouter();
 
+  // -----------------------------
+  // React Hook Form
+  // -----------------------------
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm({
+    resolver: zodResolver(loginSchema),
+  });
+
+  // -----------------------------
   // Auto-redirect if already logged in
+  // -----------------------------
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session) {
@@ -27,35 +49,22 @@ export default function Login() {
     });
   }, [router]);
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setError('');
+  // -----------------------------
+  // Login Handler
+  // -----------------------------
+  const onSubmit = async (formValues) => {
     setLoading(true);
+    setError('');
 
-    // ---- VALIDATION ----
-    if (!email || !password) {
-      setError('Email and password are required');
-      setLoading(false);
-      return;
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setError('Enter a valid email address');
-      setLoading(false);
-      return;
-    }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters');
-      setLoading(false);
-      return;
-    }
-    // ---------------------
+    const { email, password } = formValues;
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      setError(error.message);
+    const { error: loginError } = await supabase.auth.signInWithPassword({ email, password });
+
+    if (loginError) {
+      setError(loginError.message);
       setLoading(false);
     } else {
-      window.location.href = '/'; 
+      window.location.href = '/';
     }
   };
 
@@ -68,21 +77,33 @@ export default function Login() {
           <p className="mb-4 p-3 bg-red-100 text-red-800 rounded-lg text-center">{error}</p>
         )}
 
-        <form onSubmit={handleLogin} className="space-y-6">
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full text-gray-800 px-5 py-4 border border-gray-300 rounded-lg focus:ring-4 focus:ring-indigo-300"
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full text-gray-800 px-5 py-4 border border-gray-300 rounded-lg focus:ring-4 focus:ring-indigo-300"
-          />
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+          {/* Email */}
+          <div>
+            <input
+              type="email"
+              placeholder="Email"
+              {...register('email')}
+              className="w-full text-gray-800 px-5 py-4 border border-gray-300 rounded-lg focus:ring-4 focus:ring-indigo-300"
+            />
+            {errors.email && (
+              <p className="text-red-600 mt-2 text-sm">{errors.email.message}</p>
+            )}
+          </div>
+
+          {/* Password */}
+          <div>
+            <input
+              type="password"
+              placeholder="Password"
+              {...register('password')}
+              className="w-full text-gray-800 px-5 py-4 border border-gray-300 rounded-lg focus:ring-4 focus:ring-indigo-300"
+            />
+            {errors.password && (
+              <p className="text-red-600 mt-2 text-sm">{errors.password.message}</p>
+            )}
+          </div>
+
           <button
             type="submit"
             disabled={loading}
