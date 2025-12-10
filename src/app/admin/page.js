@@ -3,41 +3,21 @@
 import { supabase } from '@/lib/supabase';
 import { useContext, useEffect, useState } from 'react';
 import { AuthContext } from '../layout';
+import { Formik, Form, Field, ErrorMessage } from 'formik';
+import * as Yup from 'yup';
 
-import { useForm } from 'react-hook-form';
-import { z } from 'zod';
-import { zodResolver } from '@hookform/resolvers/zod';
-
-// -----------------------------
-// ZOD SCHEMA
-// -----------------------------
-const userSchema = z.object({
-  email: z.string().email("Enter valid email"),
-  password: z.string().min(6, "Password must be 6+ characters"),
-  fullName: z.string().min(2, "Full name must be at least 2 chars"),
+// YUP VALIDATION SCHEMA
+const UserSchema = Yup.object().shape({
+  email: Yup.string().email('Invalid email').required('Email is required'),
+  password: Yup.string().min(6, 'Password must be 6+ chars').required('Password is required'),
+  fullName: Yup.string().min(2, 'Too short').required('Full name is required'),
 });
 
 export default function AdminDashboard() {
   const { profile } = useContext(AuthContext);
   const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ text: '', type: '' });
 
-  // -----------------------------
-  // React Hook Form
-  // -----------------------------
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors },
-  } = useForm({
-    resolver: zodResolver(userSchema),
-  });
-
-  // -----------------------------
-  // Load users
-  // -----------------------------
   useEffect(() => {
     if (profile?.company_id) loadUsers();
   }, [profile]);
@@ -48,27 +28,23 @@ export default function AdminDashboard() {
       .select('id, full_name, role, created_at')
       .eq('company_id', profile.company_id)
       .order('created_at', { ascending: false });
-
-    setUsers(data || []); 
+    setUsers(data || []);
   };
 
-  // -----------------------------
-  // CREATE USER
-  // -----------------------------
-  const createUser = async (formValues) => {
-    const { email, password, fullName } = formValues;
+  const showMessage = (text, type = 'success') => {
+    setMessage({ text, type });
+    setTimeout(() => setMessage({ text: '', type: '' }), 5000);
+  };
 
-    setLoading(true);
-    showMessage('', '');
-
+  const handleCreateUser = async (values, { setSubmitting, resetForm }) => {
     try {
       const res = await fetch('/api/create-user', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email,
-          password,
-          fullName,
+          email: values.email,
+          password: values.password,
+          fullName: values.fullName,
           companyId: profile.company_id,
         }),
       });
@@ -76,29 +52,23 @@ export default function AdminDashboard() {
       const data = await res.json();
 
       if (!res.ok) {
-        if (res.status === 409 || data.error?.includes('already')) {
-          showMessage("User with this email already exists", "error");
+        if (res.status === 409) {
+          showMessage('User with this email already exists', 'error');
         } else {
-          showMessage(data.error || "Failed to create user", "error");
+          showMessage(data.error || 'Failed to create user', 'error');
         }
         return;
       }
 
-      showMessage(`User "${fullName}" created successfully!`, "success");
-      reset();
+      showMessage(`User "${values.fullName}" created successfully!`, 'success');
+      resetForm();
       loadUsers();
 
     } catch (err) {
-      console.error("Create user error:", err);
-      showMessage("Network error — check console", "error");
+      showMessage('Network error', 'error');
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
-  };
-
-  const showMessage = (text, type) => {
-    setMessage({ text, type });
-    if (text) setTimeout(() => setMessage({ text: '', type: '' }), 5000);
   };
 
   if (!profile) return <div className="p-8 text-center text-2xl">Loading...</div>;
@@ -109,6 +79,7 @@ export default function AdminDashboard() {
         Welcome, Admin
       </h1>
 
+      {/* MESSAGE */}
       {message.text && (
         <div
           className={`mb-8 p-5 rounded-xl text-center text-lg font-medium shadow-lg border-2 ${
@@ -121,67 +92,62 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* =====================
-          ADD USER FORM
-      ====================== */}
+      {/* ADD USER FORM — FORMIK + YUP */}
       <div className="mb-12 rounded-2xl bg-white p-10 shadow-2xl border border-gray-200">
         <h2 className="mb-8 text-3xl font-bold text-gray-800">Add New User</h2>
 
-        <form onSubmit={handleSubmit(createUser)}>
-          <div className="grid text-gray-800 grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            {/* Email */}
-            <div>
-              <input
-                type="email"
-                placeholder="Email"
-                {...register('email')}
-                className="w-full rounded-xl border-2 border-gray-300 px-6 py-4 text-lg focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition"
-              />
-              {errors.email && (
-                <p className="text-red-600 mt-2 text-sm">{errors.email.message}</p>
-              )}
-            </div>
+        <Formik
+          initialValues={{ email: '', password: '', fullName: '' }}
+          validationSchema={UserSchema}
+          onSubmit={handleCreateUser}
+        >
+          {({ isSubmitting }) => (
+            <Form>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div>
+                  <Field
+                    name="email"
+                    type="email"
+                    placeholder="Email"
+                    className="w-full text-gray-800 rounded-xl border-2 border-gray-300 px-6 py-4 text-lg focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition"
+                  />
+                  <ErrorMessage name="email" component="p" className="text-red-600 text-sm mt-1" />
+                </div>
 
-            {/* Password */}
-            <div>
-              <input
-                type="password"
-                placeholder="Password (min 6 chars)"
-                {...register('password')}
-                className="w-full rounded-xl border-2 border-gray-300 px-6 py-4 text-lg focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition"
-              />
-              {errors.password && (
-                <p className="text-red-600 mt-2 text-sm">{errors.password.message}</p>
-              )}
-            </div>
+                <div>
+                  <Field
+                    name="password"
+                    type="password"
+                    placeholder="Password (min 6 chars)"
+                    className="w-full  text-gray-800 rounded-xl border-2 border-gray-300 px-6 py-4 text-lg focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition"
+                  />
+                  <ErrorMessage name="password" component="p" className="text-red-600 text-sm mt-1" />
+                </div>
 
-            {/* Full Name */}
-            <div>
-              <input
-                type="text"
-                placeholder="Full Name"
-                {...register('fullName')}
-                className="w-full rounded-xl border-2 border-gray-300 px-6 py-4 text-lg focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition"
-              />
-              {errors.fullName && (
-                <p className="text-red-600 mt-2 text-sm">{errors.fullName.message}</p>
-              )}
-            </div>
-          </div>
+                <div>
+                  <Field
+                    name="fullName"
+                    type="text"
+                    placeholder="Full Name"
+                    className="w-full rounded-xl text-gray-800 border-2 border-gray-300 px-6 py-4 text-lg focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition"
+                  />
+                  <ErrorMessage name="fullName" component="p" className="text-red-600 text-sm mt-1" />
+                </div>
+              </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full md:w-auto px-12 py-5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold text-xl rounded-xl shadow-lg disabled:opacity-60 transition transform hover:scale-105"
-          >
-            {loading ? 'Creating User...' : 'Create User'}
-          </button>
-        </form>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full md:w-auto px-12 py-5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-bold text-xl rounded-xl shadow-lg disabled:opacity-60 transition transform hover:scale-105"
+              >
+                {isSubmitting ? 'Creating User...' : 'Create User'}
+              </button>
+            </Form>
+          )}
+        </Formik>
       </div>
 
-      {/* =====================
-          USERS LIST
-      ====================== */}
+      {/* USERS LIST */}
       <div className="rounded-2xl bg-white p-10 shadow-2xl border border-gray-200">
         <h2 className="mb-8 text-3xl font-bold text-gray-800">
           All Users in Your Company ({users.length})
@@ -195,7 +161,6 @@ export default function AdminDashboard() {
             >
               <h3 className="text-xl font-bold text-gray-800">{u.full_name || 'No Name'}</h3>
               <p className="text-sm text-gray-500 mt-1 truncate">{u.id}</p>
-
               <div className="mt-4">
                 <span
                   className={`inline-block px-4 py-2 rounded-full text-sm font-bold text-white ${
@@ -205,7 +170,6 @@ export default function AdminDashboard() {
                   {u.role.toUpperCase()}
                 </span>
               </div>
-
               <p className="text-xs text-gray-400 mt-3">
                 Joined: {u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}
               </p>
