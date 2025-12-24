@@ -1,9 +1,10 @@
-// src/app/api/create-user/route.js
-import { supabaseAdmin } from '@/lib/supabase-server';
+import { getSupabaseAdmin } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
 
 export async function POST(request) {
   try {
+    const supabaseAdmin = getSupabaseAdmin(); // ✅ INSIDE handler
+
     const { email, password, fullName, companyId } = await request.json();
 
     if (!email || !password || !fullName || !companyId) {
@@ -34,14 +35,13 @@ export async function POST(request) {
       {
         _id: userId,
         _full_name: fullName,
-        _company_id: companyId
+        _company_id: companyId,
       }
     );
 
     if (rpcError) throw rpcError;
 
     return NextResponse.json({ success: true }, { status: 200 });
-
   } catch (err) {
     console.error('Create user error:', err);
     return NextResponse.json(

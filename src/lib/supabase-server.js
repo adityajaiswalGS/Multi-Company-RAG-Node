@@ -1,7 +1,13 @@
-// src/lib/supabase-server.js  ← ONLY FOR API ROUTES
+// src/lib/supabase-server.js
 import { createClient } from '@supabase/supabase-js';
 
-export const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY 
-);
+export function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) {
+    throw new Error('Supabase env vars missing');
+  }
+
+  return createClient(url, key);
+}
