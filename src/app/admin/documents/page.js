@@ -1,53 +1,47 @@
 'use client';
-// src/app/admin/documents/page.js
 
 import { supabase } from '@/lib/supabase';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useContext } from 'react';
 import { useRouter } from 'next/navigation';
+
 import UploadForm from './components/UploadForm';
 import DocumentList from './components/DocumentList';
-import { useRef } from 'react';
-
-import { useSelector } from 'react-redux';
-
-const profile = useSelector((state) => state.auth.profile);
-const companyId = profile?.company_id;
-const role = profile?.role;
+import { AuthContext } from '@/app/layout';
 
 const PAGE_SIZE = 5;
 
 export default function DocumentUpload() {
+  const router = useRouter();
+  const fileInputRef = useRef(null);
+
+  const { user, profile, loading: authLoading } = useContext(AuthContext);
+
   const [companyId, setCompanyId] = useState('');
   const [documents, setDocuments] = useState([]);
   const [hasMore, setHasMore] = useState(true);
-  const [loading, setLoading] = useState(false);
+  const [docsLoading, setDocsLoading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState({ text: '', type: '' });
   const [currentPage, setCurrentPage] = useState(1);
-  const fileInputRef = useRef(null);  
-  const router = useRouter();
 
+  /* -------------------- AUTH + INIT -------------------- */
   useEffect(() => {
-    const load = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return router.replace('/login');
+    if (authLoading) return;
 
-      const { data } = await supabase
-        .from('profiles')
-        .select('company_id')
-        .eq('id', user.id)
-        .single();
+    if (!user) {
+      router.replace('/login');
+      return;
+    }
 
-      if (data?.company_id) {
-        setCompanyId(data.company_id);
-        loadDocuments(data.company_id, 0);
-      }
-    };
-    load();
-  }, [router]);
+    if (!profile?.company_id) return;
 
+    setCompanyId(profile.company_id);
+    loadDocuments(profile.company_id, 0);
+  }, [authLoading, user, profile]);
+
+  /* -------------------- LOAD DOCUMENTS -------------------- */
   const loadDocuments = async (cid, start = 0) => {
-    if (loading) return;
-    setLoading(true);
+    if (docsLoading) return;
+    setDocsLoading(true);
 
     const { data, error } = await supabase
       .from('documents')
@@ -60,60 +54,45 @@ export default function DocumentUpload() {
       console.error('Load docs error:', error);
       setHasMore(false);
     } else {
-      if (start === 0) {
-        setDocuments(data || []);
-      } else {
-        setDocuments(prev => [...prev, ...data]);
-      }
+      setDocuments(start === 0 ? data || [] : prev => [...prev, ...data]);
       setHasMore(data.length === PAGE_SIZE);
     }
 
-    setLoading(false);
+    setDocsLoading(false);
   };
 
   const loadMore = () => {
-    if (companyId && hasMore && !loading) {
-      setCurrentPage(prev => prev + 1);
+    if (companyId && hasMore && !docsLoading) {
+      const nextPage = currentPage + 1;
+      setCurrentPage(nextPage);
       loadDocuments(companyId, documents.length);
     }
   };
 
+  /* -------------------- DELETE DOCUMENT -------------------- */
   const handleDelete = async (docId, fileUrl) => {
     if (!confirm('Delete this document permanently?')) return;
 
-    setLoading(true);
+    setDocsLoading(true);
 
     try {
       const path = fileUrl.split('/').slice(-2).join('/');
 
-      const { error: storageError } = await supabase.storage
-        .from('documents')
-        .remove([path]);
-
-      if (storageError) throw storageError;
-
-      const { error: dbError } = await supabase
-        .from('documents')
-        .delete()
-        .eq('id', docId);
-
-      if (dbError) throw dbError;
+      await supabase.storage.from('documents').remove([path]);
+      await supabase.from('documents').delete().eq('id', docId);
 
       setUploadStatus({ text: 'Document deleted!', type: 'success' });
-      setTimeout(() => setUploadStatus({ text: '', type: '' }), 6000);
-
-      const newPage = Math.max(1, currentPage - (documents.length === PAGE_SIZE ? 0 : 1));
-      setCurrentPage(newPage);
-      loadDocuments(companyId, (newPage - 1) * PAGE_SIZE);
-
+      loadDocuments(companyId, 0);
+      setCurrentPage(1);
     } catch (err) {
       setUploadStatus({ text: 'Delete failed', type: 'error' });
-      setTimeout(() => setUploadStatus({ text: '', type: '' }), 6000);
     } finally {
-      setLoading(false);
+      setDocsLoading(false);
+      setTimeout(() => setUploadStatus({ text: '', type: '' }), 5000);
     }
   };
 
+  /* -------------------- UPLOAD DOCUMENT -------------------- */
   const handleUpload = async (values, { setSubmitting, resetForm }) => {
     const { file, context, important, instructions } = values;
 
@@ -122,19 +101,12 @@ export default function DocumentUpload() {
       const fileName = `${crypto.randomUUID()}.${fileExt}`;
       const filePath = `${companyId}/${fileName}`;
 
-      const { error: uploadError } = await supabase.storage
-        .from('documents')
-        .upload(filePath, file, { upsert: false });
+      await supabase.storage.from('documents').upload(filePath, file);
 
-      if (uploadError) throw uploadError;
+      const { data: { publicUrl } } =
+        supabase.storage.from('documents').getPublicUrl(filePath);
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('documents')
-        .getPublicUrl(filePath);
-
-      const { data: { user } } = await supabase.auth.getUser();
-
-      const { data: doc, error: dbError } = await supabase
+      const { data: doc } = await supabase
         .from('documents')
         .insert({
           company_id: companyId,
@@ -145,46 +117,47 @@ export default function DocumentUpload() {
           important_points: important || null,
           custom_instructions: instructions || null,
           status: 'uploaded',
-          uploaded_by: user?.id,
+          uploaded_by: user.id,
         })
         .select('id')
         .single();
 
-      if (dbError) throw dbError;
+      await fetch(
+        'https://adityags15.app.n8n.cloud/webhook/document-process-part',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            documentId: doc.id,
+            fileUrl: publicUrl,
+            fileName: file.name,
+            companyId,
+            adminContext: context || '',
+            importantPoints: important || '',
+            customInstructions: instructions || '',
+          }),
+        }
+      );
 
-      const n8nRes = await fetch('https://adityags15.app.n8n.cloud/webhook/document-process-part', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          documentId: doc.id,
-          fileUrl: publicUrl,
-          fileName: file.name,
-          companyId,
-          adminContext: context || '',
-          importantPoints: important || '',
-          customInstructions: instructions || '',
-        }),
+      setUploadStatus({
+        text: 'Success! Document uploaded and processing...',
+        type: 'success',
       });
 
-      if (!n8nRes.ok) throw new Error('AI processing failed');
-
-      setUploadStatus({ text: 'Success! Document uploaded and processing...', type: 'success' });
-      setTimeout(() => setUploadStatus({ text: '', type: '' }), 6000);
       resetForm();
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      fileInputRef.current && (fileInputRef.current.value = '');
       loadDocuments(companyId, 0);
       setCurrentPage(1);
-
     } catch (err) {
-      console.error(err);
-      setUploadStatus({ text: 'Error: ' + err.message, type: 'error' });
-      setTimeout(() => setUploadStatus({ text: '', type: '' }), 6000);
+      setUploadStatus({ text: err.message, type: 'error' });
     } finally {
       setSubmitting(false);
+      setTimeout(() => setUploadStatus({ text: '', type: '' }), 6000);
     }
   };
 
-  if (!companyId) {
+  /* -------------------- UI -------------------- */
+  if (authLoading || !companyId) {
     return (
       <div className="flex h-screen items-center justify-center text-2xl text-gray-600">
         Loading...
@@ -194,7 +167,9 @@ export default function DocumentUpload() {
 
   return (
     <div className="max-w-6xl mx-auto p-8">
-      <h1 className="text-4xl font-extrabold mb-8 text-gray-800">Document Management</h1>
+      <h1 className="text-4xl font-extrabold mb-8 text-gray-800">
+        Document Management
+      </h1>
 
       <UploadForm
         onSubmit={handleUpload}
@@ -205,7 +180,7 @@ export default function DocumentUpload() {
       <DocumentList
         documents={documents}
         hasMore={hasMore}
-        loading={loading}
+        loading={docsLoading}
         onLoadMore={loadMore}
         onDelete={handleDelete}
       />

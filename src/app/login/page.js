@@ -44,7 +44,7 @@ export default function Login() {
           .eq('id', session.user.id)
           .single();
 
-        router.replace(profile?.role === 'admin' ? '/admin' : '/chat');
+        router.replace(profile?.role === 'admin' ? '/admin/dashboard' : '/chat');
       }
     });
   }, [router]);

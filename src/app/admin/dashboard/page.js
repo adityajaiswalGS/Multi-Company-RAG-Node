@@ -3,38 +3,33 @@
 
 import { supabase } from '@/lib/supabase';
 import { useContext, useEffect, useState } from 'react';
-import { Formik, Form, Field, ErrorMessage } from 'formik';
-import * as Yup from 'yup';
+
 import CreateUserForm from './components/CreateUserForm';
 import UserList from './components/UserList';
+
 import {
   Box,
   Typography,
   CircularProgress,
 } from '@mui/material';
-import { useSelector } from 'react-redux';
 
-const profile = useSelector((state) => state.auth.profile);
-const companyId = profile?.company_id;
-
-
-
-const UserSchema = Yup.object().shape({
-  email: Yup.string().email('Invalid email').required('Email is required'),
-  password: Yup.string().min(6, 'Password must be 6+ chars').required('Password is required'),
-  fullName: Yup.string().min(2, 'Too short').required('Full name is required'),
-});
+import { AuthContext } from '@/app/layout';
 
 const PAGE_SIZE = 6;
 
 export default function AdminDashboard() {
+  // ✅ useContext INSIDE component
+  const { profile, loading: authLoading } = useContext(AuthContext);
+
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [message, setMessage] = useState({ text: '', type: '' });
 
   useEffect(() => {
-    if (profile?.company_id) loadUsers(0);
+    if (profile?.company_id) {
+      loadUsers(0);
+    }
   }, [profile]);
 
   const loadUsers = async (start = 0) => {
@@ -56,7 +51,7 @@ export default function AdminDashboard() {
       if (start === 0) {
         setUsers(data || []);
       } else {
-        setUsers(prev => [...prev, ...data]);
+        setUsers((prev) => [...prev, ...data]);
       }
       setHasMore(data.length === PAGE_SIZE);
     }
@@ -98,19 +93,26 @@ export default function AdminDashboard() {
       showMessage(`User "${values.fullName}" created successfully!`, 'success');
       resetForm();
       loadUsers(0);
-
-    } catch (err) {
+    } catch {
       showMessage('Network error', 'error');
     } finally {
       setSubmitting(false);
     }
   };
 
-  if (!profile) return (
-    <Box display="flex" height="100vh" alignItems="center" justifyContent="center">
-      <CircularProgress />
-    </Box>
-  );
+  // ⏳ Auth loading / profile loading
+  if (authLoading || !profile) {
+    return (
+      <Box
+        display="flex"
+        height="100vh"
+        alignItems="center"
+        justifyContent="center"
+      >
+        <CircularProgress />
+      </Box>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto p-6">
@@ -137,7 +139,7 @@ export default function AdminDashboard() {
               : 'bg-red-50 text-red-800 border-red-300'
           }`}
         >
-          <Typography variant="h6" fontWeight="medium">
+          <Typography variant="h6">
             {message.text}
           </Typography>
         </Box>

@@ -2,21 +2,24 @@
 // src/app/chat/page.js
 
 import { supabase } from '@/lib/supabase';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useContext } from 'react';
 import { useRouter } from 'next/navigation';
-import { Box } from '@mui/material';
+import { Box, CircularProgress } from '@mui/material';
+
 import ChatHeader from './components/ChatHeader';
 import ChatSidebar from './components/ChatSidebar';
 import MessageList from './components/MessageList';
 import ChatInput from './components/ChatInput';
-import { CircularProgress} from '@mui/material';
 
-const profile = useSelector((state) => state.auth.profile);
-const companyId = profile?.company_id;
+import { AuthContext } from '@/app/layout';
 
-const WEBHOOK_URL = "https://adityags15.app.n8n.cloud/webhook/880ed6d9-68cb-4a36-b63b-83c110c05deg";
+const WEBHOOK_URL =
+  'https://adityags15.app.n8n.cloud/webhook/880ed6d9-68cb-4a36-b63b-83c110c05deg';
 
 export default function ChatPage() {
+  // ✅ useContext INSIDE component
+  const { profile, loading: authLoading } = useContext(AuthContext);
+
   const [user, setUser] = useState(null);
   const [companyId, setCompanyId] = useState('');
   const [documents, setDocuments] = useState([]);
@@ -26,6 +29,7 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(false);
   const [refreshLoading, setRefreshLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
   const messagesEndRef = useRef(null);
   const router = useRouter();
 
@@ -34,8 +38,15 @@ export default function ChatPage() {
   }, []);
 
   const loadUserAndDocs = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return router.replace('/login');
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      router.replace('/login');
+      return;
+    }
+
     setUser(user);
 
     const { data: profile } = await supabase
@@ -52,6 +63,7 @@ export default function ChatPage() {
 
   const refreshDocs = async (cid) => {
     setRefreshLoading(true);
+
     const { data: docs } = await supabase
       .from('documents')
       .select('id, file_name, status, auto_summary')
@@ -60,9 +72,10 @@ export default function ChatPage() {
       .order('created_at', { ascending: false });
 
     setDocuments(docs || []);
-    if (docs?.length > 0) {
-      setSelectedDocs(docs.map(d => d.id));
+    if (docs?.length) {
+      setSelectedDocs(docs.map((d) => d.id));
     }
+
     setRefreshLoading(false);
   };
 
@@ -79,10 +92,12 @@ export default function ChatPage() {
     if (!question.trim() || selectedDocs.length === 0 || loading) return;
 
     const userMessage = { role: 'user', content: question };
-    setMessages(prev => [...prev, userMessage]);
+    setMessages((prev) => [...prev, userMessage]);
     setQuestion('');
     setLoading(true);
-    setMessages(prev => [...prev, { role: 'assistant', content: null }]);
+
+    // placeholder assistant message
+    setMessages((prev) => [...prev, { role: 'assistant', content: null }]);
 
     try {
       const response = await fetch(WEBHOOK_URL, {
@@ -97,15 +112,17 @@ export default function ChatPage() {
 
       const answer = await response.text();
 
-      setMessages(prev => {
+      setMessages((prev) => {
         const updated = [...prev];
-        updated[updated.length - 1].content = answer.trim() || 'No response.';
+        updated[updated.length - 1].content =
+          answer.trim() || 'No response.';
         return updated;
       });
-    } catch (err) {
-      setMessages(prev => {
+    } catch {
+      setMessages((prev) => {
         const updated = [...prev];
-        updated[updated.length - 1].content = 'Sorry, AI is not responding right now.';
+        updated[updated.length - 1].content =
+          'Sorry, AI is not responding right now.';
         return updated;
       });
     } finally {
@@ -114,14 +131,23 @@ export default function ChatPage() {
   };
 
   const toggleDoc = (id) => {
-    setSelectedDocs(prev =>
-      prev.includes(id) ? prev.filter(d => d !== id) : [...prev, id]
+    setSelectedDocs((prev) =>
+      prev.includes(id)
+        ? prev.filter((d) => d !== id)
+        : [...prev, id]
     );
   };
 
+  // Loading state
   if (!companyId) {
     return (
-      <Box display="flex" height="100vh" alignItems="center" justifyContent="center" bgcolor="#f8fafc">
+      <Box
+        display="flex"
+        height="100vh"
+        alignItems="center"
+        justifyContent="center"
+        bgcolor="#f8fafc"
+      >
         <CircularProgress size={60} thickness={4} />
       </Box>
     );

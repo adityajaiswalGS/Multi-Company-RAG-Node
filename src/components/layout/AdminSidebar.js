@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { Box, Typography, Button } from '@mui/material';
 import { Dashboard, UploadFile, Chat, Logout } from '@mui/icons-material';
+import { AuthContext } from '@/app/layout';
 
 const navItems = [
   { label: 'Dashboard', href: '/admin/dashboard', icon: <Dashboard /> },
@@ -14,9 +15,9 @@ const navItems = [
 ];
 
 export default function AdminSidebar() {
-const profile = useSelector((state) => state.auth.profile);
-const role = profile?.role;
-const companyId = profile?.company_id;
+
+
+const { profile, loading } = useContext(AuthContext);
   const pathname = usePathname();
   const router = useRouter();
 
