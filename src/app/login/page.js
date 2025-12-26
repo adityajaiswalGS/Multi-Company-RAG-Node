@@ -5,12 +5,12 @@ import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import axios from 'axios'; // For API calls
-import { useDispatch, useSelector } from 'react-redux'; // For Redux
-import { setLogin } from '@/redux/authSlice'; // Our Redux action
+import axios from 'axios';
+import { useDispatch, useSelector } from 'react-redux';
+import { setLogin } from '@/redux/authSlice';
 
 // -----------------------------
-// ZOD SCHEMA (Keeping your validations)
+// ZOD SCHEMA
 // -----------------------------
 const loginSchema = z.object({
   email: z.string().email('Enter a valid email'),
@@ -23,12 +23,9 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Get auth status from Redux to check if already logged in
+  // Get auth status from Redux
   const { isAuthenticated, user } = useSelector((state) => state.auth);
 
-  // -----------------------------
-  // React Hook Form
-  // -----------------------------
   const {
     register,
     handleSubmit,
@@ -37,42 +34,42 @@ export default function Login() {
     resolver: zodResolver(loginSchema),
   });
 
-  // -----------------------------
-  // Auto-redirect if already logged in (Using Redux State)
-  // -----------------------------
+  // -----------------------------------------------------------
+  // FINAL ROLE-BASED REDIRECT LOGIC (Production Level)
+  // -----------------------------------------------------------
   useEffect(() => {
     if (isAuthenticated && user) {
-      // Redirect based on role from Redux 
-      router.replace(user.role === 'admin' || user.role === 'superadmin' 
-        ? '/admin/dashboard' 
-        : '/chat');
+      if (user.role === 'superadmin') {
+        // Super Admin lands on Company/Admin management
+        router.replace('/super');
+      } else if (user.role === 'admin') {
+        // Company Admin lands on their operational dashboard
+        router.replace('/admin/dashboard');
+      } else {
+        // Regular users land on the Chat interface
+        router.replace('/chat');
+      }
     }
   }, [isAuthenticated, user, router]);
 
-  // -----------------------------
-  // Login Handler (Now using Node.js Backend)
-  // -----------------------------
   const onSubmit = async (formValues) => {
     setLoading(true);
     setError('');
 
     try {
-      // 1. Call your Node.js Backend 
       const response = await axios.post('http://localhost:5000/api/auth/login', {
         email: formValues.email,
         password: formValues.password,
       });
 
-      // 2. Save result to Redux 
-      // response.data contains { token, user: { id, full_name, role, company_id } }
+      // Data contains { token, user: { id, full_name, role, company_id } }
       dispatch(setLogin({
         token: response.data.token,
         user: response.data.user
       }));
 
-      // The useEffect above will handle the redirect automatically once state updates
+      // The useEffect above will catch the change and redirect
     } catch (err) {
-      // Handle Express error messages
       setError(err.response?.data?.message || 'Invalid email or password');
     } finally {
       setLoading(false);
@@ -80,47 +77,52 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-100 to-purple-100">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-100 to-purple-100 p-4">
       <div className="bg-white p-10 rounded-2xl shadow-2xl w-full max-w-md">
-        <h1 className="text-3xl font-bold text-center mb-8 text-gray-800">Company Bot AI</h1>
+        <h1 className="text-3xl font-bold text-center mb-2 text-gray-800">Company Bot AI</h1>
+        <p className="text-center text-gray-500 mb-8 text-sm">Enterprise Multi-Tenant Intelligence</p>
 
         {error && (
-          <p className="mb-4 p-3 bg-red-100 text-red-800 rounded-lg text-center">{error}</p>
+          <div className="mb-6 p-3 bg-red-50 border-l-4 border-red-500 text-red-800 rounded text-sm animate-pulse">
+            {error}
+          </div>
         )}
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-          {/* Email */}
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
           <div>
+            <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Email Address</label>
             <input
               type="email"
-              placeholder="Email"
+              placeholder="name@company.com"
               {...register('email')}
-              className="w-full text-gray-800 px-5 py-4 border border-gray-300 rounded-lg focus:ring-4 focus:ring-indigo-300 outline-none"
+              className="w-full text-gray-800 px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
             />
             {errors.email && (
-              <p className="text-red-600 mt-2 text-sm">{errors.email.message}</p>
+              <p className="text-red-600 mt-1 text-xs">{errors.email.message}</p>
             )}
           </div>
 
-          {/* Password */}
           <div>
+            <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Password</label>
             <input
               type="password"
-              placeholder="Password"
+              placeholder="••••••••"
               {...register('password')}
-              className="w-full text-gray-800 px-5 py-4 border border-gray-300 rounded-lg focus:ring-4 focus:ring-indigo-300 outline-none"
+              className="w-full text-gray-800 px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
             />
             {errors.password && (
-              <p className="text-red-600 mt-2 text-sm">{errors.password.message}</p>
+              <p className="text-red-600 mt-1 text-xs">{errors.password.message}</p>
             )}
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-lg transition disabled:bg-indigo-300"
+            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-lg shadow-lg hover:shadow-indigo-200 transition-all flex items-center justify-center disabled:bg-indigo-300"
           >
-            {loading ? 'Authenticating...' : 'Login'}
+            {loading ? (
+               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+            ) : 'Sign In'}
           </button>
         </form>
       </div>

@@ -7,7 +7,8 @@ const { sequelize } = require('./models');
 // Import modular routes
 const authRoutes = require('./routes/authRoutes');
 const superAdminRoutes = require('./routes/superAdminRoutes');
-const adminRoutes = require('./routes/superAdminRoutes');
+// ✅ FIXED: Point this to adminRoutes, not superAdminRoutes
+const adminRoutes = require('./routes/adminRoutes'); 
 const chatRoutes = require('./routes/chatRoutes');
 
 const app = express();
@@ -20,17 +21,15 @@ app.use(cors({
 app.use(express.json()); 
 
 // --- MODULAR ROUTES ---
-// We prefix routes for better organization
 app.use('/api/auth', authRoutes);
-app.use('/api/super', superAdminRoutes);
-app.use('/api/admin', adminRoutes);
+app.use('/api/super', superAdminRoutes); // Uses isSuperAdmin
+app.use('/api/admin', adminRoutes);      // Uses isAdmin (allows both)
 app.use('/api/chat', chatRoutes);
 
 // Health Check
 app.get('/health', (req, res) => res.send('Company Bot API is running...'));
 
 // --- GLOBAL ERROR HANDLER ---
-// Standardizes error responses across the entire app
 app.use((err, req, res, next) => {
     console.error(err.stack);
     res.status(err.status || 500).json({

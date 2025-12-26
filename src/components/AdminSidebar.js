@@ -3,28 +3,39 @@
 import { useContext } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { Box, Typography, Button } from '@mui/material';
-import { Dashboard, UploadFile, Chat, Logout, Settings } from '@mui/icons-material'; // Added Settings icon
+import { Dashboard, UploadFile, Chat, Logout, Settings } from '@mui/icons-material';
 import { AuthContext } from '@/components/AuthContextProvider';
 import { useDispatch } from 'react-redux';
 import { setLogout } from '@/redux/authSlice';
 import Link from 'next/link';
 
 export default function AdminSidebar() {
-  const { profile } = useContext(AuthContext); // Hook called correctly inside function
+  const { profile } = useContext(AuthContext);
   const pathname = usePathname();
   const router = useRouter();
   const dispatch = useDispatch();
 
-  // Define navItems inside the component so it can use 'profile'
-  const navItems = [
-    ...(profile?.role === 'superadmin' 
-      ? [{ label: 'Super Control', href: '/super', icon: <Settings /> }] 
-      : []
-    ),
-    { label: 'Dashboard', href: '/admin/dashboard', icon: <Dashboard /> },
-    { label: 'Documents', href: '/admin/documents', icon: <UploadFile /> },
-    { label: 'Chat', href: '/admin/chat', icon: <Chat /> },  
-  ];
+  // Production logic: Strictly separate Super Admin from Operational views
+  let navItems = [];
+
+  if (profile?.role === 'superadmin') {
+    // Super Admin: System level only
+    navItems = [
+      { label: 'Super Control', href: '/super', icon: <Settings /> },
+    ];
+  } else if (profile?.role === 'admin') {
+    // Company Admin: Management + Operational
+    navItems = [
+      { label: 'Dashboard', href: '/admin/dashboard', icon: <Dashboard /> },
+      { label: 'Documents', href: '/admin/documents', icon: <UploadFile /> },
+      { label: 'Chat', href: '/admin/chat', icon: <Chat /> },  
+    ];
+  } else {
+    // Regular User: Chat only
+    navItems = [
+      { label: 'Chat', href: '/admin/chat', icon: <Chat /> },
+    ];
+  }
 
   const handleLogout = () => {
     dispatch(setLogout());
@@ -59,6 +70,9 @@ export default function AdminSidebar() {
         </Typography>
         <Typography variant="body2" color="text.secondary" mt={1}>
           Hello, {profile?.full_name || 'Admin'}
+        </Typography>
+        <Typography variant="caption" sx={{ display: 'block', color: 'primary.main', fontWeight: 'bold' }}>
+          {profile?.role?.toUpperCase()}
         </Typography>
       </Box>
 

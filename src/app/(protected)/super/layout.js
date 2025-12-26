@@ -9,7 +9,7 @@ export default function SuperLayout({ children }) {
 
   useEffect(() => {
     if (!loading && profile?.role !== 'superadmin') {
-      router.replace('/admin/dashboard'); // Redirect if not superadmin
+      router.replace('/admin/dashboard'); 
     }
   }, [profile, loading, router]);
 
