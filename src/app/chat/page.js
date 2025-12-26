@@ -1,27 +1,27 @@
 'use client';
-// src/app/chat/page.js
 
-import { supabase } from '@/lib/supabase';
 import { useState, useEffect, useRef, useContext } from 'react';
 import { useRouter } from 'next/navigation';
+import { useSelector, useDispatch } from 'react-redux';
+import axios from 'axios';
 import { Box, CircularProgress } from '@mui/material';
-
 import ChatHeader from './components/ChatHeader';
 import ChatSidebar from './components/ChatSidebar';
 import MessageList from './components/MessageList';
 import ChatInput from './components/ChatInput';
 
 import { AuthContext } from '@/components/AuthContextProvider';
+import { setLogout } from '@/redux/authSlice';
 
-const WEBHOOK_URL =
-  'https://adityags15.app.n8n.cloud/webhook/880ed6d9-68cb-4a36-b63b-83c110c05deg';
+// This URL should now point to your Node.js backend Chat endpoint
+const CHAT_API_URL = 'http://localhost:5000/api/chat/query';
 
 export default function ChatPage() {
-  // ✅ useContext INSIDE component
   const { profile, loading: authLoading } = useContext(AuthContext);
+  const { token } = useSelector((state) => state.auth);
+  const dispatch = useDispatch();
+  const router = useRouter();
 
-  const [user, setUser] = useState(null);
-  const [companyId, setCompanyId] = useState('');
   const [documents, setDocuments] = useState([]);
   const [selectedDocs, setSelectedDocs] = useState([]);
   const [messages, setMessages] = useState([]);
@@ -31,98 +31,68 @@ export default function ChatPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const messagesEndRef = useRef(null);
-  const router = useRouter();
+
+  // Load documents from Node.js backend 
+  const refreshDocs = async () => {
+    if (!token) return;
+    setRefreshLoading(true);
+    try {
+      const res = await axios.get('http://localhost:5000/api/admin/docs', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      // Only show processed documents for chat
+      const readyDocs = res.data.filter(d => d.status === 'ready' || d.status === 'processing');
+      setDocuments(readyDocs);
+      
+      if (readyDocs.length > 0 && selectedDocs.length === 0) {
+        setSelectedDocs(readyDocs.map(d => d.id));
+      }
+    } catch (err) {
+      console.error("Failed to fetch documents", err);
+    } finally {
+      setRefreshLoading(false);
+    }
+  };
 
   useEffect(() => {
-    loadUserAndDocs();
-  }, []);
+    if (!authLoading && token) refreshDocs();
+  }, [authLoading, token]);
 
-  const loadUserAndDocs = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      router.replace('/login');
-      return;
-    }
-
-    setUser(user);
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('company_id')
-      .eq('id', user.id)
-      .single();
-
-    if (!profile?.company_id) return;
-
-    setCompanyId(profile.company_id);
-    await refreshDocs(profile.company_id);
-  };
-
-  const refreshDocs = async (cid) => {
-    setRefreshLoading(true);
-
-    const { data: docs } = await supabase
-      .from('documents')
-      .select('id, file_name, status, auto_summary')
-      .eq('company_id', cid)
-      .eq('status', 'ready')
-      .order('created_at', { ascending: false });
-
-    setDocuments(docs || []);
-    if (docs?.length) {
-      setSelectedDocs(docs.map((d) => d.id));
-    }
-
-    setRefreshLoading(false);
-  };
-
-  const logout = async () => {
-    await supabase.auth.signOut();
+  const handleLogout = () => {
+    dispatch(setLogout());
     router.replace('/login');
   };
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
 
   const handleSend = async () => {
     if (!question.trim() || selectedDocs.length === 0 || loading) return;
 
     const userMessage = { role: 'user', content: question };
     setMessages((prev) => [...prev, userMessage]);
+    const currentQuestion = question;
     setQuestion('');
     setLoading(true);
 
-    // placeholder assistant message
+    // Add empty assistant message for loading state
     setMessages((prev) => [...prev, { role: 'assistant', content: null }]);
 
     try {
-      const response = await fetch(WEBHOOK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question: question.trim(),
-          company_id: companyId,
-          selected_doc_ids: selectedDocs,
-        }),
+      // Send query to Node.js backend which handles the RAG flow 
+      const response = await axios.post(CHAT_API_URL, {
+        question: currentQuestion.trim(),
+        selected_doc_ids: selectedDocs,
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
       });
-
-      const answer = await response.text();
 
       setMessages((prev) => {
         const updated = [...prev];
-        updated[updated.length - 1].content =
-          answer.trim() || 'No response.';
+        updated[updated.length - 1].content = response.data.answer || 'No response.';
         return updated;
       });
-    } catch {
+    } catch (err) {
       setMessages((prev) => {
         const updated = [...prev];
-        updated[updated.length - 1].content =
-          'Sorry, AI is not responding right now.';
+        updated[updated.length - 1].content = 'Sorry, the assistant is unavailable.';
         return updated;
       });
     } finally {
@@ -130,24 +100,9 @@ export default function ChatPage() {
     }
   };
 
-  const toggleDoc = (id) => {
-    setSelectedDocs((prev) =>
-      prev.includes(id)
-        ? prev.filter((d) => d !== id)
-        : [...prev, id]
-    );
-  };
-
-  // Loading state
-  if (!companyId) {
+  if (authLoading || !profile) {
     return (
-      <Box
-        display="flex"
-        height="100vh"
-        alignItems="center"
-        justifyContent="center"
-        bgcolor="#f8fafc"
-      >
+      <Box display="flex" height="100vh" alignItems="center" justifyContent="center" bgcolor="#f8fafc">
         <CircularProgress size={60} thickness={4} />
       </Box>
     );
@@ -160,14 +115,14 @@ export default function ChatPage() {
         onToggle={() => setSidebarOpen(!sidebarOpen)}
         documents={documents}
         selectedDocs={selectedDocs}
-        onToggleDoc={toggleDoc}
+        onToggleDoc={(id) => setSelectedDocs(prev => prev.includes(id) ? prev.filter(d => d !== id) : [...prev, id])}
         refreshLoading={refreshLoading}
-        onRefresh={() => refreshDocs(companyId)}
-        onLogout={logout}
+        onRefresh={refreshDocs}
+        onLogout={handleLogout}
       />
 
       <Box flex={1} display="flex" flexDirection="column">
-        <ChatHeader user={user} companyId={companyId} />
+        <ChatHeader user={profile} companyId={profile.company_id} />
         <MessageList messages={messages} />
         <div ref={messagesEndRef} />
         <ChatInput

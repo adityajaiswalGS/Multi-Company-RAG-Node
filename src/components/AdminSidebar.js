@@ -1,31 +1,36 @@
 'use client';
 
-// src/components/layout/AdminSidebar.js
-
 import { useContext } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
 import { Box, Typography, Button } from '@mui/material';
-import { Dashboard, UploadFile, Chat, Logout } from '@mui/icons-material';
+import { Dashboard, UploadFile, Chat, Logout, Settings } from '@mui/icons-material'; // Added Settings icon
 import { AuthContext } from '@/components/AuthContextProvider';
-
-const navItems = [
-  { label: 'Dashboard', href: '/admin/dashboard', icon: <Dashboard /> },
-  { label: 'Documents', href: '/admin/documents', icon: <UploadFile /> },
-  { label: 'Chat', href: '/admin/chat', icon: <Chat /> },  
-];
+import { useDispatch } from 'react-redux';
+import { setLogout } from '@/redux/authSlice';
+import Link from 'next/link';
 
 export default function AdminSidebar() {
-  const { profile } = useContext(AuthContext);
+  const { profile } = useContext(AuthContext); // Hook called correctly inside function
   const pathname = usePathname();
   const router = useRouter();
+  const dispatch = useDispatch();
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
+  // Define navItems inside the component so it can use 'profile'
+  const navItems = [
+    ...(profile?.role === 'superadmin' 
+      ? [{ label: 'Super Control', href: '/super', icon: <Settings /> }] 
+      : []
+    ),
+    { label: 'Dashboard', href: '/admin/dashboard', icon: <Dashboard /> },
+    { label: 'Documents', href: '/admin/documents', icon: <UploadFile /> },
+    { label: 'Chat', href: '/admin/chat', icon: <Chat /> },  
+  ];
+
+  const handleLogout = () => {
+    dispatch(setLogout());
     router.replace('/login');
   };
 
-  // Helper to check active state
   const isActive = (href) => {
     if (href === '/admin/dashboard') return pathname === '/admin/dashboard';
     return pathname.startsWith(href);
@@ -45,23 +50,23 @@ export default function AdminSidebar() {
         display: 'flex',
         flexDirection: 'column',
         boxShadow: 3,
+        zIndex: 1200,
       }}
     >
-      {/* Header with Name */}
       <Box p={4} borderBottom={1} borderColor="divider">
         <Typography variant="h6" fontWeight="bold" color="primary">
-          Admin Panel
+          Company Bot
         </Typography>
         <Typography variant="body2" color="text.secondary" mt={1}>
           Hello, {profile?.full_name || 'Admin'}
         </Typography>
       </Box>
 
-      {/* Navigation */}
       <Box flex={1} p={2}>
         {navItems.map((item) => (
           <Button
             key={item.href}
+            component={Link}
             href={item.href}
             fullWidth
             variant={isActive(item.href) ? 'contained' : 'text'}
@@ -86,7 +91,6 @@ export default function AdminSidebar() {
         ))}
       </Box>
 
-      {/* Logout */}
       <Box p={3} borderTop={1} borderColor="divider">
         <Button
           fullWidth

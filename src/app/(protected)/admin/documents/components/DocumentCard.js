@@ -38,13 +38,9 @@ export default function DocumentCard({ doc, onDelete, loading }) {
         </Tooltip>
 
         <Tooltip title="Delete">
-          <IconButton
-            color="error"
-            onClick={handleDeleteClick}
-            disabled={loading}
-          >
-            <Delete />
-          </IconButton>
+        <IconButton color="error" onClick={() => onDelete(doc.id)} disabled={loading}>
+      <Delete />
+    </IconButton>
         </Tooltip>
       </Box>
     </Box>

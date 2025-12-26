@@ -1,38 +1,44 @@
 'use client';
 
-import { Box } from '@mui/material';
+import { Box, CircularProgress } from '@mui/material';
 import AdminSidebar from '@/components/AdminSidebar';
-import { useContext } from 'react';
+import { useContext, useEffect } from 'react';
 import { AuthContext } from '@/components/AuthContextProvider';
-import { redirect } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 
 export default function AdminLayout({ children }) {
   const { profile, loading } = useContext(AuthContext);
+  const router = useRouter();
 
-  if (loading) {
+  useEffect(() => {
+    // Protection: If user is not an admin or superadmin, kick them out
+    if (!loading && (!profile || (profile.role !== 'admin' && profile.role !== 'superadmin'))) {
+      router.replace('/chat');
+    }
+  }, [profile, loading, router]);
+
+  if (loading || !profile) {
     return (
-      <div className="flex h-screen items-center justify-center text-xl">
-        Loading...
-      </div>
+      <Box display="flex" height="100vh" alignItems="center" justifyContent="center">
+        <CircularProgress />
+      </Box>
     );
   }
-
-  // if (!profile || profile.role !== 'admin') {
-  //   redirect('/chat');  // ← Silent redirect, no "Access Denied" flash
-  // }
 
   // Admin — show sidebar + content
   return (
     <Box display="flex" minHeight="100vh">
+      {/* This sidebar needs to be updated next! */}
       <AdminSidebar />
 
       <Box
         component="main"
         flex={1}
         sx={{
-          marginLeft: { xs: 0, md: '280px' },
+          marginLeft: { xs: 0, md: '280px' }, // Matches standard sidebar width
           bgcolor: 'grey.50',
           width: { xs: '100%', md: 'calc(100% - 280px)' },
+          transition: 'margin 0.3s ease',
         }}
       >
         {children}

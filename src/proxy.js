@@ -1,20 +1,16 @@
-import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs';
 import { NextResponse } from 'next/server';
 
-// Change to 'export default' for Next.js 16 compatibility
 export default async function proxy(req) { 
   const res = NextResponse.next();
-  const supabase = createMiddlewareClient({ req, res });
-  const { data: { session } } = await supabase.auth.getSession();
-
   const pathname = req.nextUrl.pathname;
 
+  // Allow system files and API routes to pass through
   if (pathname.startsWith('/_next') || pathname.startsWith('/api')) {
     return res;
   }
 
-  // ... rest of your existing logic ...
-
+  // Temporary: Allow all routes while we transition to Node.js Auth
+  // We will handle protection inside the actual Pages/Components for now
   return res;
 }
 

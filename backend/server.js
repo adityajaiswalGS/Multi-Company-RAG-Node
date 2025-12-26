@@ -3,39 +3,45 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { sequelize } = require('./models');
-const authController = require('./controllers/authController');
 
-const multer = require('multer');
-const upload = multer({ storage: multer.memoryStorage() });
-const authMiddleware = require('./middleware/authMiddleware');
-const docController = require('./controllers/docController');
-
+// Import modular routes
+const authRoutes = require('./routes/authRoutes');
+const superAdminRoutes = require('./routes/superAdminRoutes');
+const adminRoutes = require('./routes/superAdminRoutes');
+const chatRoutes = require('./routes/chatRoutes');
 
 const app = express();
 
-// Middleware
-app.use(cors()); // Allows your Next.js frontend to talk to this API
-app.use(express.json()); // Allows the server to parse JSON data in requests
+// --- GLOBAL MIDDLEWARE ---
+app.use(cors({
+  origin: 'http://localhost:3000', 
+  credentials: true
+}));
+app.use(express.json()); 
 
-// --- ROUTES ---
+// --- MODULAR ROUTES ---
+// We prefix routes for better organization
+app.use('/api/auth', authRoutes);
+app.use('/api/super', superAdminRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/chat', chatRoutes);
 
-// Auth Route
-app.post('/api/auth/login', authController.login);
+// Health Check
+app.get('/health', (req, res) => res.send('Company Bot API is running...'));
 
-app.post('/api/admin/docs', 
-    authMiddleware,             // 1. Check if user is logged in
-    upload.single('file'),      // 2. Grab the file from the request
-    docController.uploadDocument // 3. Run the upload logic
-);
-
-
-// Basic Health Check
-app.get('/', (req, res) => res.send('Company Bot API is running...'));
+// --- GLOBAL ERROR HANDLER ---
+// Standardizes error responses across the entire app
+app.use((err, req, res, next) => {
+    console.error(err.stack);
+    res.status(err.status || 500).json({
+        success: false,
+        message: err.message || 'Internal Server Error'
+    });
+});
 
 // --- START SERVER ---
 const PORT = process.env.PORT || 5000;
 
-// Authenticate DB connection then start listening
 sequelize.authenticate()
     .then(() => {
         console.log('PostgreSQL Database connected via Sequelize.');
