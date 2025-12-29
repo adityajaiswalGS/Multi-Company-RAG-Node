@@ -14,7 +14,6 @@ import ChatInput from './components/ChatInput';
 import { AuthContext } from '@/components/AuthContextProvider';
 import { setLogout } from '@/redux/authSlice';
 
-// This URL should now point to your Node.js backend Chat endpoint
 const CHAT_API_URL = 'http://localhost:5000/api/chat/query';
 
 export default function ChatPage() {
@@ -33,7 +32,12 @@ export default function ChatPage() {
 
   const messagesEndRef = useRef(null);
 
-  // Load documents from Node.js backend 
+  // Auto-scroll effect
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Fetch only 'processed' documents
   const refreshDocs = async () => {
     if (!token) return;
     setRefreshLoading(true);
@@ -41,15 +45,15 @@ export default function ChatPage() {
       const res = await axios.get('http://localhost:5000/api/admin/docs', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      // Only show processed documents for chat
-      const readyDocs = res.data.filter(d => d.status === 'ready' || d.status === 'processing');
+      // Match the status from your ingestion workflow
+      const readyDocs = res.data.filter(d => d.status === 'processed' || d.status === 'processing');
       setDocuments(readyDocs);
       
       if (readyDocs.length > 0 && selectedDocs.length === 0) {
         setSelectedDocs(readyDocs.map(d => d.id));
       }
     } catch (err) {
-      console.error("Failed to fetch documents", err);
+      console.error("Doc Refresh Error", err);
     } finally {
       setRefreshLoading(false);
     }
@@ -61,25 +65,24 @@ export default function ChatPage() {
 
   const handleLogout = () => {
     dispatch(setLogout());
+    setMessages([]);
     router.replace('/login');
   };
 
   const handleSend = async () => {
     if (!question.trim() || selectedDocs.length === 0 || loading) return;
 
-    const userMessage = { role: 'user', content: question };
-    setMessages((prev) => [...prev, userMessage]);
-    const currentQuestion = question;
+    const currentQuestion = question.trim();
+    setMessages((prev) => [...prev, { role: 'user', content: currentQuestion }]);
     setQuestion('');
     setLoading(true);
 
-    // Add empty assistant message for loading state
+    // Add assistant loading state
     setMessages((prev) => [...prev, { role: 'assistant', content: null }]);
 
     try {
-      // Send query to Node.js backend which handles the RAG flow 
       const response = await axios.post(CHAT_API_URL, {
-        question: currentQuestion.trim(),
+        question: currentQuestion,
         selected_doc_ids: selectedDocs,
       }, {
         headers: { Authorization: `Bearer ${token}` }
@@ -87,13 +90,16 @@ export default function ChatPage() {
 
       setMessages((prev) => {
         const updated = [...prev];
-        updated[updated.length - 1].content = response.data.answer || 'No response.';
+        const lastIndex = updated.length - 1;
+
+        // Since the backend now sends a string, this is clean and safe
+        updated[lastIndex].content = response.data.answer ||  "I don't have information about that in the selected documents.";
         return updated;
       });
     } catch (err) {
       setMessages((prev) => {
         const updated = [...prev];
-        updated[updated.length - 1].content = 'Sorry, the assistant is unavailable.';
+        updated[updated.length - 1].content = 'The assistant is currently offline.';
         return updated;
       });
     } finally {

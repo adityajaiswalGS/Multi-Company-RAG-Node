@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useSelector, useDispatch } from 'react-redux';
 import axios from 'axios';
 import { Box, CircularProgress } from '@mui/material';
+
 import ChatHeader from './components/ChatHeader';
 import ChatSidebar from './components/ChatSidebar';
 import MessageList from './components/MessageList';
@@ -13,7 +14,6 @@ import ChatInput from './components/ChatInput';
 import { AuthContext } from '@/components/AuthContextProvider';
 import { setLogout } from '@/redux/authSlice';
 
-// This URL should now point to your Node.js backend Chat endpoint
 const CHAT_API_URL = 'http://localhost:5000/api/chat/query';
 
 export default function ChatPage() {
@@ -32,7 +32,12 @@ export default function ChatPage() {
 
   const messagesEndRef = useRef(null);
 
-  // Load documents from Node.js backend 
+  // 1. Auto-scroll to bottom on new messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // 2. Fetch documents with 'processed' status
   const refreshDocs = async () => {
     if (!token) return;
     setRefreshLoading(true);
@@ -40,8 +45,8 @@ export default function ChatPage() {
       const res = await axios.get('http://localhost:5000/api/admin/docs', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      // Only show processed documents for chat
-      const readyDocs = res.data.filter(d => d.status === 'ready' || d.status === 'processing');
+      // Filter for 'processed' status from your n8n ingestion
+      const readyDocs = res.data.filter(d => d.status === 'processed' || d.status === 'processing');
       setDocuments(readyDocs);
       
       if (readyDocs.length > 0 && selectedDocs.length === 0) {
@@ -60,25 +65,24 @@ export default function ChatPage() {
 
   const handleLogout = () => {
     dispatch(setLogout());
+    setMessages([]);
     router.replace('/login');
   };
 
   const handleSend = async () => {
     if (!question.trim() || selectedDocs.length === 0 || loading) return;
 
-    const userMessage = { role: 'user', content: question };
-    setMessages((prev) => [...prev, userMessage]);
-    const currentQuestion = question;
+    const currentQuestion = question.trim();
+    setMessages((prev) => [...prev, { role: 'user', content: currentQuestion }]);
     setQuestion('');
     setLoading(true);
 
-    // Add empty assistant message for loading state
+    // Placeholder for assistant
     setMessages((prev) => [...prev, { role: 'assistant', content: null }]);
 
     try {
-      // Send query to Node.js backend which handles the RAG flow 
       const response = await axios.post(CHAT_API_URL, {
-        question: currentQuestion.trim(),
+        question: currentQuestion,
         selected_doc_ids: selectedDocs,
       }, {
         headers: { Authorization: `Bearer ${token}` }
@@ -86,7 +90,14 @@ export default function ChatPage() {
 
       setMessages((prev) => {
         const updated = [...prev];
-        updated[updated.length - 1].content = response.data.answer || 'No response.';
+        const rawAnswer = response.data.answer;
+
+        // ✅ DOUBLE SAFETY: Ensure content is always a string
+        const cleanContent = (typeof rawAnswer === 'object' && rawAnswer !== null)
+          ? (rawAnswer.output || JSON.stringify(rawAnswer))
+          : (rawAnswer || "I don't have information about that in the selected documents.");
+
+        updated[updated.length - 1].content = cleanContent;
         return updated;
       });
     } catch (err) {
