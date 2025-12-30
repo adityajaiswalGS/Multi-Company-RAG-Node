@@ -28,7 +28,7 @@ export default function ChatPage() {
   const [question, setQuestion] = useState('');
   const [loading, setLoading] = useState(false);
   const [refreshLoading, setRefreshLoading] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true); // Default open is usually better
 
   const messagesEndRef = useRef(null);
 
@@ -42,13 +42,24 @@ export default function ChatPage() {
     if (!token) return;
     setRefreshLoading(true);
     try {
-      const res = await axios.get('http://localhost:5000/api/admin/docs', {
+      // FIX 1: Add limit=100 so we get all docs for the chat context (not just page 1)
+      const res = await axios.get('http://localhost:5000/api/admin/docs?limit=100', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      // Match the status from your ingestion workflow
-      const readyDocs = res.data.filter(d => d.status === 'processed' || d.status === 'processing');
+
+      // FIX 2: Handle the new response structure { documents: [], pagination: {} }
+      let fetchedDocs = [];
+      if (res.data && res.data.documents) {
+        fetchedDocs = res.data.documents;
+      } else if (Array.isArray(res.data)) {
+        fetchedDocs = res.data;
+      }
+
+      // Filter for valid statuses
+      const readyDocs = fetchedDocs.filter(d => d.status === 'processed' || d.status === 'processing');
       setDocuments(readyDocs);
       
+      // Select all by default if none selected
       if (readyDocs.length > 0 && selectedDocs.length === 0) {
         setSelectedDocs(readyDocs.map(d => d.id));
       }
@@ -91,15 +102,14 @@ export default function ChatPage() {
       setMessages((prev) => {
         const updated = [...prev];
         const lastIndex = updated.length - 1;
-
-        // Since the backend now sends a string, this is clean and safe
-        updated[lastIndex].content = response.data.answer ||  "I don't have information about that in the selected documents.";
+        updated[lastIndex].content = response.data.answer || "I don't have information about that in the selected documents.";
         return updated;
       });
     } catch (err) {
+      console.error(err);
       setMessages((prev) => {
         const updated = [...prev];
-        updated[updated.length - 1].content = 'The assistant is currently offline.';
+        updated[updated.length - 1].content = 'The assistant is currently offline or encountered an error.';
         return updated;
       });
     } finally {

@@ -2,48 +2,45 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 
-// Configure multer for memory storage (required for AWS S3 uploads)
+// Configure multer for memory storage
 const upload = multer({ storage: multer.memoryStorage() });
 
 const userController = require('../controllers/userController');
 const docController = require('../controllers/docController');
 const authMiddleware = require('../middleware/authMiddleware');
-
-// 🔒 STRICT company admin check
 const { isStrictCompanyAdmin } = require('../middleware/roleMiddleware');
 
 /* ---------------------------------
-   Global Protection
+   1. GLOBAL AUTHENTICATION
 ---------------------------------- */
-// Only AUTHENTICATED + COMPANY ADMINS
-router.use(authMiddleware, isStrictCompanyAdmin);
+// Apply authMiddleware to ALL routes (User must be logged in)
+router.use(authMiddleware);
 
 /* ---------------------------------
-   USER MANAGEMENT
+   2. SHARED ROUTES (Admins + Users)
 ---------------------------------- */
-// Company Admin creates users ONLY for their own company
-router.post('/users', userController.createUser);
-
-// Lists users belonging to the admin's company
-router.get('/users', userController.getCompanyUsers);
-
-// Revoke company user access
-router.delete('/users/:id', userController.deleteUser);
-
-/* ---------------------------------
-   DOCUMENT MANAGEMENT
----------------------------------- */
-// List company documents
+// IMPORTANT: We REMOVED 'isStrictCompanyAdmin' from here.
+// Standard users need this to populate their Chat Sidebar.
 router.get('/docs', docController.getDocs);
 
-// Upload document to S3 (company-scoped)
+/* ---------------------------------
+   3. ADMIN-ONLY ROUTES
+---------------------------------- */
+// All routes below require the user to be a Company Admin
+
+// --- USER MANAGEMENT ---
+router.post('/users', isStrictCompanyAdmin, userController.createUser);
+router.get('/users', isStrictCompanyAdmin, userController.getCompanyUsers);
+router.delete('/users/:id', isStrictCompanyAdmin, userController.deleteUser);
+
+// --- DOCUMENT MANAGEMENT (Write Access) ---
 router.post(
   '/docs',
+  isStrictCompanyAdmin, // Only Admins can upload
   upload.single('file'),
   docController.uploadDocument
 );
 
-// Delete document from S3 and DB
-router.delete('/docs/:id', docController.deleteDoc);
+router.delete('/docs/:id', isStrictCompanyAdmin, docController.deleteDoc); // Only Admins can delete
 
 module.exports = router;

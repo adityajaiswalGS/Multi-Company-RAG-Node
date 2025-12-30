@@ -7,11 +7,23 @@ const axios = require('axios');
 // Upload logic (Your existing code)
 exports.uploadDocument = async (req, res) => {
     try {
+
         const { company_id } = req.user; 
         const file = req.file;
+        
+        const { context, important, instructions } = req.body;
 
-        if (!file) return res.status(400).json({ message: "No file uploaded" });
+        // Safety Checks
+        if (!company_id) {
+            console.error("Missing company_id in request. Check AuthMiddleware.");
+            return res.status(400).json({ message: "Authentication error: Company ID missing." });
+        }
 
+        if (!file) {
+            return res.status(400).json({ message: "No file uploaded" });
+        }
+
+        // 3. S3 Upload Logic
         const s3Key = `${company_id}/${Date.now()}-${file.originalname}`;
 
         const uploadParams = {
@@ -24,34 +36,48 @@ exports.uploadDocument = async (req, res) => {
         await s3Client.send(new PutObjectCommand(uploadParams));
         const fileUrl = `https://${process.env.S3_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Key}`;
 
+        // 4. Create Database Entry
+        // Make sure your Document Model in ../models/index.js has these columns!
         const newDoc = await Document.create({
+            company_id: company_id,      // Links doc to your dashboard list
             file_name: file.originalname,
             file_url: fileUrl,
-            status: 'processing',
-            company_id: company_id
+            status: 'processing',        // Initial status
+            
+            // Saving the extra context provided in the upload form
+            // If your DB columns have different names (e.g., 'important_points'), change the keys below
+            context: context || '',     
+            important: important || '',
+            instructions: instructions || '' 
         });
 
-        // Trigger n8n Webhook 
+
+        // 5. Trigger n8n Webhook
         try {
             await axios.post(process.env.N8N_DOCUMENT_WEBHOOK, {
                 document_id: newDoc.id,
                 company_id: company_id,
                 file_url: fileUrl,
                 file_name: file.originalname,
-                // Passing additional fields from the form if needed
-                context: req.body.context || '',
-                important: req.body.important || '',
-                instructions: req.body.instructions || ''
+                context: context || '',
+                important: important || '',
+                instructions: instructions || ''
             });
+            console.log("n8n Webhook triggered successfully");
         } catch (n8nError) {
+            // We don't fail the request if n8n fails, just log it
             console.error("n8n Webhook failed:", n8nError.message);
         }
 
-        res.status(201).json({ message: "Document uploaded and processing started", document: newDoc });
+        // 6. Success Response
+        res.status(201).json({ 
+            message: "Document uploaded and processing started", 
+            document: newDoc 
+        });
 
     } catch (error) {
         console.error("Upload Error:", error);
-        res.status(500).json({ message: "Upload failed" });
+        res.status(500).json({ message: "Upload failed: " + error.message });
     }
 };
 

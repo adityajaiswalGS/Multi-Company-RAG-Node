@@ -46,10 +46,7 @@ exports.login = async (req, res) => {
                 company_id: user.company_id
             }
         });
-        console.log("Request Password:", password);
-console.log("DB Hash:", user.password);
 // const isMatch = await bcrypt.compare(password, user.password);
-console.log("Match Result:", isMatch);
 
     } catch (error) {
         console.error(error);

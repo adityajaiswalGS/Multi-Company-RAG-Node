@@ -14,6 +14,11 @@ export default function ChatSidebar({
   onRefresh,
   onLogout,
 }) {
+
+  // --- SAFETY CHECK ---
+  // Ensure we always have an array, even if 'documents' is undefined
+  const safeDocs = Array.isArray(documents) ? documents : [];
+
   return (
     <>
       <IconButton
@@ -58,7 +63,7 @@ export default function ChatSidebar({
             <Box>
               <Tooltip title="Refresh">
                 <IconButton onClick={onRefresh} disabled={refreshLoading} color="inherit">
-                  <Refresh />
+                  <Refresh className={refreshLoading ? "animate-spin" : ""} />
                 </IconButton>
               </Tooltip>
               <Tooltip title="Logout">
@@ -70,17 +75,17 @@ export default function ChatSidebar({
           </Box>
 
           <Typography variant="body2" color="gray.400" mb={3}>
-            {selectedDocs.length} of {documents.length} selected
+            {selectedDocs.length} of {safeDocs.length} selected
           </Typography>
 
           <Box flex={1} overflow="auto" pr={1}>
-            {documents.length === 0 ? (
+            {safeDocs.length === 0 ? (
               <Typography textAlign="center" color="gray.500" mt={8}>
-                No documents ready
+                {refreshLoading ? "Loading documents..." : "No processed documents found"}
               </Typography>
             ) : (
               <List>
-                {documents.map((doc) => (
+                {safeDocs.map((doc) => (
                   <ListItem
                     key={doc.id}
                     onClick={() => onToggleDoc(doc.id)}
@@ -104,7 +109,10 @@ export default function ChatSidebar({
                     </ListItemIcon>
                     <ListItemText
                       primary={doc.file_name}
-                      secondary={doc.auto_summary?.substring(0, 60) + '...' || 'No summary'}
+                      // Fallback to show status if summary is missing
+                      secondary={
+                        (doc.auto_summary || doc.status || "No summary").substring(0, 60) + '...'
+                      }
                       primaryTypographyProps={{ fontWeight: 'medium' }}
                       secondaryTypographyProps={{ color: 'gray.400' }}
                     />
