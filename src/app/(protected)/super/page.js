@@ -1,10 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSelector, useDispatch } from 'react-redux'; //
-import axios from 'axios';
+import { useSelector, useDispatch } from 'react-redux';
 import { useRouter } from 'next/navigation';
-import { setLogout } from '@/redux/authSlice'; //
+import axios from 'axios';
+import { z } from 'zod';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { setLogout } from '@/redux/authSlice';
 
 import {
   Box,
@@ -14,49 +17,110 @@ import {
   MenuItem,
   Paper,
   Alert,
-  CircularProgress // Added for production-level feedback
+  CircularProgress,
+  Grid,
+  Snackbar,
+  Container,
+  Stack
 } from '@mui/material';
 
-import LogoutIcon from '@mui/icons-material/Logout'; // Changed icon to match "Logout" text
+import {
+  Logout as LogoutIcon,
+  Business as BusinessIcon,
+  AdminPanelSettings as AdminIcon,
+  AddCircleOutline as AddIcon
+} from '@mui/icons-material';
+
+/* =======================
+   VALIDATION SCHEMAS
+======================= */
+
+const companySchema = z.object({
+  name: z
+    .string()
+    .min(2, 'Company name must be at least 2 characters')
+    .max(100)
+});
+
+const adminSchema = z.object({
+  company_id: z.string().min(1, 'You must select a company'),
+  full_name: z.string().min(3, 'Name must be at least 3 characters long'),
+  email: z.string().email('Please enter a valid email address'),
+  password: z.string().min(6, 'Password must be at least 6 characters')
+});
+
+/* =======================
+   COMPONENT
+======================= */
 
 export default function SuperAdminDashboard() {
   const router = useRouter();
-  const dispatch = useDispatch(); //
+  const dispatch = useDispatch();
   const { token } = useSelector((state) => state.auth);
 
   const [companies, setCompanies] = useState([]);
-  const [loading, setLoading] = useState(false); //
-  const [newCompanyName, setNewCompanyName] = useState('');
-  const [adminData, setAdminData] = useState({
-    email: '',
-    password: '',
-    full_name: '',
-    company_id: ''
+  const [status, setStatus] = useState({
+    open: false,
+    message: '',
+    type: 'success'
   });
-  const [status, setStatus] = useState({ message: '', type: 'success' });
 
-  /* ----------------------------------
-     Logout Logic
-  ----------------------------------- */
-  const handleLogout = () => {
-    dispatch(setLogout()); // Clears Redux & Redux-Persist (localStorage)
-    router.replace('/login'); // Redirect to login
+  /* =======================
+     FORMS
+  ======================= */
+
+  const {
+    control: companyControl,
+    handleSubmit: handleCompanySubmit,
+    reset: resetCompanyForm,
+    setError: setCompanyError,
+    formState: { errors: companyErrors, isSubmitting: isCompanySubmitting }
+  } = useForm({
+    resolver: zodResolver(companySchema),
+    defaultValues: { name: '' }
+  });
+
+  const {
+    control: adminControl,
+    handleSubmit: handleAdminSubmit,
+    reset: resetAdminForm,
+    formState: { errors: adminErrors, isSubmitting: isAdminSubmitting }
+  } = useForm({
+    resolver: zodResolver(adminSchema),
+    defaultValues: {
+      company_id: '',
+      full_name: '',
+      email: '',
+      password: ''
+    }
+  });
+
+  /* =======================
+     HELPERS
+  ======================= */
+
+  const showStatus = (message, type) => {
+    setStatus({ open: true, message, type });
   };
 
-  /* ----------------------------------
-     Load Companies
-  ----------------------------------- */
+  const handleLogout = () => {
+    dispatch(setLogout());
+    router.replace('/login');
+  };
+
+  /* =======================
+     API
+  ======================= */
+
   const loadCompanies = async () => {
     try {
       const res = await axios.get(
         'http://localhost:5000/api/super/companies',
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
       setCompanies(res.data);
-    } catch (error) {
-      console.error('Failed to load companies', error);
+    } catch {
+      showStatus('Failed to load companies list', 'error');
     }
   };
 
@@ -64,167 +128,274 @@ export default function SuperAdminDashboard() {
     if (token) loadCompanies();
   }, [token]);
 
-  /* ----------------------------------
-     Create Company
-  ----------------------------------- */
-  const handleCreateCompany = async () => {
-    if (!newCompanyName.trim()) {
-      return setStatus({ message: 'Company name required', type: 'error' });
+  /* =======================
+     SUBMITS
+  ======================= */
+
+  const onCompanySubmit = async (data) => {
+    const isDuplicate = companies.some(
+      (c) => c.name.toLowerCase().trim() === data.name.toLowerCase().trim()
+    );
+
+    if (isDuplicate) {
+      setCompanyError('name', {
+        type: 'manual',
+        message: 'This company name is already registered.'
+      });
+      return;
     }
 
-    setLoading(true); //
     try {
       await axios.post(
         'http://localhost:5000/api/super/companies',
-        { name: newCompanyName },
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
+        data,
+        { headers: { Authorization: `Bearer ${token}` } }
       );
-
-      setNewCompanyName('');
-      setStatus({ message: 'Company created successfully!', type: 'success' });
+      showStatus('Organization registered successfully!', 'success');
+      resetCompanyForm();
       loadCompanies();
     } catch (error) {
-      setStatus({ message: 'Error creating company', type: 'error' });
-    } finally {
-      setLoading(false);
+      if (error.response?.status === 409) {
+        setCompanyError('name', {
+          type: 'manual',
+          message: 'Conflict: This company already exists.'
+        });
+      } else {
+        showStatus(
+          error.response?.data?.message || 'Failed to create company',
+          'error'
+        );
+      }
     }
   };
 
-  /* ----------------------------------
-     Create Admin
-  ----------------------------------- */
-  const handleCreateAdmin = async () => {
-    setLoading(true); //
+  const onAdminSubmit = async (data) => {
     try {
       await axios.post(
         'http://localhost:5000/api/super/admins',
-        adminData,
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
+        data,
+        { headers: { Authorization: `Bearer ${token}` } }
       );
-
-      setStatus({ message: 'Admin assigned to company!', type: 'success' });
-      setAdminData({
-        email: '',
-        password: '',
-        full_name: '',
-        company_id: ''
-      });
+      showStatus('Admin access granted successfully!', 'success');
+      resetAdminForm();
     } catch (error) {
-      setStatus({
-        message:
-          error.response?.data?.message || 'Error creating admin',
-        type: 'error'
-      });
-    } finally {
-      setLoading(false);
+      showStatus(
+        error.response?.data?.message || 'Failed to create admin',
+        'error'
+      );
     }
   };
 
-  return (
-    <Box p={6} sx={{ maxWidth: 800, mx: 'auto' }}>
-      {/* Header with Logout */}
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
-        <Typography variant="h4" fontWeight="bold">
-            Super Admin Control
-        </Typography>
-        <Button
-          variant="outlined"
-          color="error"
-          startIcon={<LogoutIcon />}
-          onClick={handleLogout} //
-        >
-          Logout
-        </Button>
-      </Box>
+  /* =======================
+     UI
+  ======================= */
 
-      {status.message && (
-        <Alert severity={status.type} sx={{ mb: 4 }} onClose={() => setStatus({message: '', type: 'success'})}>
+  return (
+    <Box sx={{ minHeight: '100vh', bgcolor: '#f8fafc', py: 6 }}>
+      <Container maxWidth="lg">
+
+        {/* HEADER */}
+        <Box display="flex" justifyContent="space-between" mb={5}>
+          <Box>
+            <Typography variant="h4" color='black' fontWeight={800}>
+              Super Dashboard
+            </Typography>
+            <Typography color="text.secondary">
+              System Overview & Access Control
+            </Typography>
+          </Box>
+          <Button
+            variant="contained"
+            color="error"
+            startIcon={<LogoutIcon />}
+            onClick={handleLogout}
+          >
+            Logout
+          </Button>
+        </Box>
+
+        <Grid container spacing={4}>
+
+          {/* LEFT PANEL */}
+          <Grid item xs={12} md={5}>
+            <Paper sx={{ p: 4, borderRadius: 4 }}>
+              <Stack direction="row" spacing={2} mb={3}>
+                <BusinessIcon color="primary" />
+                <Typography fontWeight="bold">
+                  Register Organization
+                </Typography>
+              </Stack>
+
+              <form onSubmit={handleCompanySubmit(onCompanySubmit)}>
+                <Stack spacing={3}>
+                  <Controller
+                    name="name"
+                    control={companyControl}
+                    render={({ field }) => (
+                      <TextField
+                        {...field}
+                        label="Organization Name"
+                        fullWidth
+                        error={!!companyErrors.name}
+                        helperText={companyErrors.name?.message}
+                      />
+                    )}
+                  />
+
+                  <Button
+                    type="submit"
+                    variant="contained"
+                    disabled={isCompanySubmitting}
+                    startIcon={<AddIcon />}
+                  >
+                    {isCompanySubmitting
+                      ? <CircularProgress size={20} color="inherit" />
+                      : 'Create Company'}
+                  </Button>
+                </Stack>
+              </form>
+            </Paper>
+          </Grid>
+
+          {/* RIGHT PANEL */}
+          <Grid item xs={12} md={7}>
+            <Paper sx={{ p: 4, borderRadius: 4 }}>
+              <Stack direction="row" spacing={2} mb={3}>
+                <AdminIcon color="secondary" />
+                <Typography fontWeight="bold">
+                  Assign Company Admin
+                </Typography>
+              </Stack>
+
+              <form onSubmit={handleAdminSubmit(onAdminSubmit)}>
+                <Grid container spacing={3}>
+
+                  <Grid item xs={12}>
+                    <Controller
+                      name="company_id"
+                      control={adminControl}
+                      render={({ field }) => (
+                        <TextField
+                          {...field}
+                          select
+                          fullWidth
+                          label="Organization"
+                          error={!!adminErrors.company_id}
+                          helperText={adminErrors.company_id?.message}
+                          InputProps={{
+                            sx: { height: 65, alignItems: 'center' }
+                          }}
+                          InputLabelProps={{ shrink: true }}
+                          SelectProps={{
+                            displayEmpty: true,
+                            renderValue: (selected) => {
+                              if (!selected) {
+                                return (
+                                  <Typography color="text.secondary">
+                                    Select an organization...
+                                  </Typography>
+                                );
+                              }
+                              const company = companies.find(
+                                (c) => c.id === selected
+                              );
+                              return company ? company.name : selected;
+                            }
+                          }}
+                        >
+                          {companies.length === 0 ? (
+                            <MenuItem disabled>No companies found</MenuItem>
+                          ) : (
+                            companies.map((c) => (
+                              <MenuItem key={c.id} value={c.id}>
+                                {c.name}
+                              </MenuItem>
+                            ))
+                          )}
+                        </TextField>
+                      )}
+                    />
+                  </Grid>
+
+                  <Grid item xs={12} sm={6}>
+                    <Controller
+                      name="full_name"
+                      control={adminControl}
+                      render={({ field }) => (
+                        <TextField
+                          {...field}
+                          label="Full Name"
+                          fullWidth
+                          error={!!adminErrors.full_name}
+                          helperText={adminErrors.full_name?.message}
+                        />
+                      )}
+                    />
+                  </Grid>
+
+                  <Grid item xs={12} sm={6}>
+                    <Controller
+                      name="email"
+                      control={adminControl}
+                      render={({ field }) => (
+                        <TextField
+                          {...field}
+                          label="Email Address"
+                          fullWidth
+                          error={!!adminErrors.email}
+                          helperText={adminErrors.email?.message}
+                        />
+                      )}
+                    />
+                  </Grid>
+
+                  <Grid item xs={12}>
+                    <Controller
+                      name="password"
+                      control={adminControl}
+                      render={({ field }) => (
+                        <TextField
+                          {...field}
+                          label="Temporary Password"
+                          type="password"
+                          fullWidth
+                          error={!!adminErrors.password}
+                          helperText={adminErrors.password?.message}
+                        />
+                      )}
+                    />
+                  </Grid>
+
+                  <Grid item xs={12}>
+                    <Button
+                      type="submit"
+                      variant="contained"
+                      color="secondary"
+                      fullWidth
+                      disabled={isAdminSubmitting}
+                    >
+                      {isAdminSubmitting
+                        ? <CircularProgress size={20} color="inherit" />
+                        : 'Grant Admin Access'}
+                    </Button>
+                  </Grid>
+
+                </Grid>
+              </form>
+            </Paper>
+          </Grid>
+        </Grid>
+      </Container>
+
+      <Snackbar
+        open={status.open}
+        autoHideDuration={6000}
+        onClose={() => setStatus({ ...status, open: false })}
+      >
+        <Alert severity={status.type} variant="filled">
           {status.message}
         </Alert>
-      )}
-
-      {/* Create Company Section */}
-      <Paper elevation={2} sx={{ p: 4, mb: 4, borderRadius: 3 }}>
-        <Typography variant="h6" mb={2} fontWeight="bold" color="primary">
-          Register New Company
-        </Typography>
-
-        <Box display="flex" gap={2}>
-          <TextField
-            fullWidth
-            label="Company Name"
-            value={newCompanyName}
-            onChange={(e) => setNewCompanyName(e.target.value)}
-            disabled={loading}
-          />
-          <Button
-            variant="contained"
-            onClick={handleCreateCompany}
-            disabled={loading}
-          >
-            {loading ? <CircularProgress size={24} /> : 'Create'}
-          </Button>
-        </Box>
-      </Paper>
-
-      {/* Create Admin Section */}
-      <Paper elevation={2} sx={{ p: 4, borderRadius: 3 }}>
-        <Typography variant="h6" mb={2} fontWeight="bold" color="secondary">
-          Create Company Admin
-        </Typography>
-
-        <Box display="flex" flexDirection="column" gap={3}>
-          <TextField
-            select
-            label="Select Company"
-            value={adminData.company_id}
-            onChange={(e) => setAdminData({ ...adminData, company_id: e.target.value })}
-            disabled={loading}
-          >
-            {companies.map((company) => (
-              <MenuItem key={company.id} value={company.id}>
-                {company.name}
-              </MenuItem>
-            ))}
-          </TextField>
-
-          <TextField
-            label="Admin Full Name"
-            value={adminData.full_name}
-            onChange={(e) => setAdminData({ ...adminData, full_name: e.target.value })}
-            disabled={loading}
-          />
-
-          <TextField
-            label="Email Address"
-            value={adminData.email}
-            onChange={(e) => setAdminData({ ...adminData, email: e.target.value })}
-            disabled={loading}
-          />
-
-          <TextField
-            label="Initial Password"
-            type="password"
-            value={adminData.password}
-            onChange={(e) => setAdminData({ ...adminData, password: e.target.value })}
-            disabled={loading}
-          />
-
-          <Button
-            variant="contained"
-            color="secondary"
-            size="large"
-            onClick={handleCreateAdmin}
-            disabled={loading}
-          >
-            {loading ? <CircularProgress size={24} color="inherit" /> : 'Assign Admin to Company'}
-          </Button>
-        </Box>
-      </Paper>
+      </Snackbar>
     </Box>
   );
 }

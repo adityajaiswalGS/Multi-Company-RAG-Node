@@ -6,10 +6,23 @@ const bcrypt = require('bcrypt');
 exports.createCompany = async (req, res) => {
     try {
         const { name } = req.body;
+
+        // 1. Check if a company with this exact name already exists
+        const existingCompany = await Company.findOne({ where: { name } });
+        
+        if (existingCompany) {
+            // Return 409 (Conflict) specifically for duplicates
+            return res.status(409).json({ message: "Company name already exists" });
+        }
+
+        // 2. If unique, create the new company
         const company = await Company.create({ name });
         res.status(201).json(company);
+
     } catch (err) {
-        res.status(400).json({ message: "Company name already exists" });
+        console.error("Create Company Error:", err);
+        // Fallback for other errors (database connection, etc.)
+        res.status(500).json({ message: "Internal server error" });
     }
 };
 

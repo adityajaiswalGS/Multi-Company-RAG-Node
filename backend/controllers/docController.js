@@ -55,20 +55,35 @@ exports.uploadDocument = async (req, res) => {
     }
 };
 
-// NEW: Get all documents for the logged-in user's company
 exports.getDocs = async (req, res) => {
     try {
-        const docs = await Document.findAll({
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const offset = (page - 1) * limit;
+
+        const { count, rows } = await Document.findAndCountAll({
             where: { company_id: req.user.company_id },
-            order: [['createdAt', 'DESC']] // Show newest first
+            order: [['createdAt', 'DESC']],
+            limit: limit,
+            offset: offset
         });
-        res.status(200).json(docs);
+
+        res.status(200).json({
+            documents: rows,
+            pagination: {
+                totalItems: count,
+                totalPages: Math.ceil(count / limit),
+                currentPage: page,
+                itemsPerPage: limit
+            }
+        });
     } catch (err) {
+        console.error("Error fetching docs:", err);
         res.status(500).json({ message: "Failed to fetch documents" });
     }
 };
 
-// NEW: Delete document from DB and AWS S3
+
 exports.deleteDoc = async (req, res) => {
     try {
         const { id } = req.params;
@@ -79,7 +94,7 @@ exports.deleteDoc = async (req, res) => {
         if (!doc) return res.status(404).json({ message: "Document not found" });
 
         // 2. Extract S3 Key from the URL to delete from AWS
-        // Example URL: https://bucket.s3.region.amazonaws.com/company_id/filename
+    
         const urlParts = doc.file_url.split('.com/');
         const s3Key = urlParts[1];
 

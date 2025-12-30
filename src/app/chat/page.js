@@ -14,7 +14,8 @@ import ChatInput from './components/ChatInput';
 import { AuthContext } from '@/components/AuthContextProvider';
 import { setLogout } from '@/redux/authSlice';
 
-const CHAT_API_URL = 'http://localhost:5000/api/chat/query';
+// Base URL for chat-related operations
+const API_BASE_URL = 'http://localhost:5000/api/chat'; 
 
 export default function ChatPage() {
   const { profile, loading: authLoading } = useContext(AuthContext);
@@ -32,23 +33,25 @@ export default function ChatPage() {
 
   const messagesEndRef = useRef(null);
 
-  // 1. Auto-scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // 2. Fetch documents with 'processed' status
+  // 1. Fetch documents (FIXED ENDPOINT)
   const refreshDocs = async () => {
     if (!token) return;
     setRefreshLoading(true);
     try {
-      const res = await axios.get('http://localhost:5000/api/admin/docs', {
+      // FIX: Changed from '/api/admin/docs' to '/api/chat/docs'
+      // This allows regular users to see company documents
+      const res = await axios.get(`${API_BASE_URL}/docs`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      // Filter for 'processed' status from your n8n ingestion
+      
       const readyDocs = res.data.filter(d => d.status === 'processed' || d.status === 'processing');
       setDocuments(readyDocs);
       
+      // Auto-select all docs if none selected
       if (readyDocs.length > 0 && selectedDocs.length === 0) {
         setSelectedDocs(readyDocs.map(d => d.id));
       }
@@ -76,12 +79,10 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, { role: 'user', content: currentQuestion }]);
     setQuestion('');
     setLoading(true);
-
-    // Placeholder for assistant
     setMessages((prev) => [...prev, { role: 'assistant', content: null }]);
 
     try {
-      const response = await axios.post(CHAT_API_URL, {
+      const response = await axios.post(`${API_BASE_URL}/query`, {
         question: currentQuestion,
         selected_doc_ids: selectedDocs,
       }, {
@@ -92,7 +93,6 @@ export default function ChatPage() {
         const updated = [...prev];
         const rawAnswer = response.data.answer;
 
-        // ✅ DOUBLE SAFETY: Ensure content is always a string
         const cleanContent = (typeof rawAnswer === 'object' && rawAnswer !== null)
           ? (rawAnswer.output || JSON.stringify(rawAnswer))
           : (rawAnswer || "I don't have information about that in the selected documents.");
@@ -101,6 +101,7 @@ export default function ChatPage() {
         return updated;
       });
     } catch (err) {
+      console.error("Chat error:", err);
       setMessages((prev) => {
         const updated = [...prev];
         updated[updated.length - 1].content = 'Sorry, the assistant is unavailable.';

@@ -8,14 +8,32 @@ const bcrypt = require('bcrypt');
  */
 exports.getCompanyUsers = async (req, res) => {
     try {
-        // Multi-tenant isolation: filter by the company_id attached in authMiddleware
-        const users = await User.findAll({
+        // 1. Get pagination params (default: page 1, limit 10)
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const offset = (page - 1) * limit;
+
+        // 2. Fetch data + count
+        const { count, rows } = await User.findAndCountAll({
             where: { company_id: req.user.company_id },
-            attributes: { exclude: ['password'] }, // Security: never send passwords
-            order: [['createdAt', 'DESC']]
+            attributes: { exclude: ['password'] },
+            order: [['createdAt', 'DESC']],
+            limit: limit,
+            offset: offset
         });
-        res.status(200).json(users);
+
+        // 3. Return structured response
+        res.status(200).json({
+            users: rows,
+            pagination: {
+                totalItems: count,
+                totalPages: Math.ceil(count / limit),
+                currentPage: page,
+                itemsPerPage: limit
+            }
+        });
     } catch (error) {
+        console.error("Error fetching users:", error);
         res.status(500).json({ message: "Error fetching users" });
     }
 };
